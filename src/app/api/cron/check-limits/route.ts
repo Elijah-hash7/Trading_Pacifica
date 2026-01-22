@@ -1,5 +1,7 @@
-import { checkLimitOrders } from "@/lib/limitOrderMonitor";
 import { NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
     try {
@@ -10,6 +12,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        const { checkLimitOrders } = await import("@/lib/limitOrderMonitor");
         await checkLimitOrders();
 
         return NextResponse.json({
