@@ -70,7 +70,7 @@ export default function HomePage() {
   const [sendFeeLoading, setSendFeeLoading] = useState(false);
   const [sendFeeError, setSendFeeError] = useState<string | null>(null);
   const [connectingWallet, setConnectingWallet] = useState(false);
-  const searchParams = useSearchParams();~
+  const searchParams = useSearchParams();
   const router = useRouter();
 
   const handleConnectWallet = async () => {
