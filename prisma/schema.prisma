@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") 
+}
+
+
+model User {
+  id            String    @id @default(cuid())
+  fid           Int       @default(0)
+  username      String    
+  walletAddress String    @unique
+  totalVolume   Float     @default(0)
+  totalFees     Float     @default(0)
+  createdAt     DateTime  @default(now())
+
+
+  orders        Order[]
+  trades        Trade[]
+}
+
+
+model Order {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  pairId          String
+  pairSymbol      String
+  type            String
+  side            String
+  size            Float
+  leverage        Int
+  limitPrice      Float?
+  status          String     @default("pending")
+  pacificaOrderId String?
+  filledAt        DateTime?
+  createdAt       DateTime   @default(now())
+
+  signedPayload   String?
+
+
+  trades          Trade?
+}
+
+
+model Trade {
+  id              String      @id @default(cuid())
+  orderId         String      @unique
+  order           Order       @relation(fields: [orderId], references: [id])
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  pairId          String
+  pairSymbol      String
+  side            String
+  size            Float
+  leverage        Int
+  entryPrice      Float
+  exitPrice       Float?
+  pnl             Float?
+  fee             Float
+  status          String      @default("open")
+  createdAt       DateTime    @default(now())
+  closedAt        DateTime?
+}

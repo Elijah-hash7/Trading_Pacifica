@@ -1,0 +1,8 @@
+1.now i want to implement the farcaster auth and wallet so i can login to farcaster and connect to the inbuilt wallet to see the balance.
+2.add few features to the menu page and make them functional and also make the search button functional so i can get pairs
+3.for the settings in the home page lets substitute it for a button that says connect wallet and when youve connected your wallet it should show a truncated address
+4.once you click that avatar you should see the info about the person(wallet, username and other additional details)
+5. see that place displaying 7billion i want it to display the balance of the inbulit wallet we'll be integratinf from farcaster
+
+
+at the end make sure you give a brienf summary on  the issues and how you tackled them so i can learn
