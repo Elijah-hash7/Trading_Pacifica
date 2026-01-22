@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Pacificast is a mobile-first perpetual trading UI built with Next.js and the Farcaster miniapp wallet flow. It includes live pairs, trading, positions, and a limit-order monitor.
 
-## Getting Started
+## Features
+- Trading pairs and market prices
+- Market/limit order flow (signed with Farcaster wallet)
+- Positions + orders views
+- Limit order monitoring via cron
+- Swap + send modals with rate and gas fee estimates
 
-First, run the development server:
-
+## Local Setup
+1) Install dependencies
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2) Create `.env`
+```
+DATABASE_URL=...
+CRON_SECRET=...
+BUILDER_CODE=PACIFICAST
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3) Run the dev server
+```bash
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open `http://localhost:3000`.
 
-## Learn More
+## Deployment
+Deploy on Vercel (recommended):
+1) Import the repo
+2) Set env vars in Vercel:
+   - `DATABASE_URL`
+   - `CRON_SECRET`
+   - `BUILDER_CODE`
+3) Deploy
 
-To learn more about Next.js, take a look at the following resources:
+## Cron (Limit Orders)
+Limit orders are checked via `GET /api/cron/check-limits`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+For Vercel Hobby, cron is limited to once per day. This repo includes a GitHub Action to ping the endpoint every 5 minutes instead.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Configure GitHub Action secrets:
+- `CRON_URL` = `https://<your-domain>/api/cron/check-limits`
+- `CRON_SECRET` = your secret value
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+- Env vars are not committed; configure them in your host dashboard.
+- Rates come from CoinGecko and may be rate-limited during high traffic.
