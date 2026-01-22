@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { Trophy, Medal, Award, DollarSign, BarChart3, RefreshCw } from 'lucide-react';
-import BottomNav from '@/components/BottomNav';
 
 interface LeaderboardEntry {
   rank: number;
@@ -30,6 +29,11 @@ export default function LeaderboardPage() {
   const [feePool, setFeePool] = useState<FeePool | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const fallbackFeePool: FeePool = {
+    totalFeesCollected: 0,
+    feePool: 0,
+    rewardDistribution: { first: 0, second: 0, third: 0 },
+  };
 
   useEffect(() => {
     fetchLeaderboard();
@@ -55,7 +59,9 @@ export default function LeaderboardPage() {
       setFeePool(data.feePool || null);
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError('Leaderboard is updating. Please check back soon.');
+      setLeaderboard([]);
+      setFeePool(fallbackFeePool);
       console.error('Error fetching leaderboard:', err);
     } finally {
       setLoading(false);
@@ -112,7 +118,7 @@ export default function LeaderboardPage() {
 
       <div className="p-4 space-y-4">
         {/* Fee Pool Card */}
-        {feePool && (
+        {(feePool || fallbackFeePool) && (
           <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-2xl p-5 border border-zinc-800/50">
             <h2 className="text-base font-semibold mb-4 flex items-center gap-2">
               <DollarSign className="w-4 h-4 text-emerald-400" />
@@ -124,13 +130,13 @@ export default function LeaderboardPage() {
               <div className="bg-zinc-800/50 rounded-xl p-3">
                 <div className="text-xs text-zinc-500 mb-0.5">Fees</div>
                 <div className="text-base font-bold text-white">
-                  {formatCurrency(feePool.totalFeesCollected)}
+                  {formatCurrency((feePool || fallbackFeePool).totalFeesCollected)}
                 </div>
               </div>
               <div className="bg-zinc-800/50 rounded-xl p-3">
                 <div className="text-xs text-zinc-500 mb-0.5">Rewards</div>
                 <div className="text-base font-bold text-emerald-400">
-                  {formatCurrency(feePool.feePool)}
+                  {formatCurrency((feePool || fallbackFeePool).feePool)}
                 </div>
               </div>
               <div className="bg-zinc-800/50 rounded-xl p-3">
@@ -147,17 +153,17 @@ export default function LeaderboardPage() {
               <div className="grid grid-cols-3 gap-3">
                 <div className="text-center">
                   <div className="text-yellow-400 text-xs font-semibold mb-1">1st Place</div>
-                  <div className="text-white font-semibold text-sm">{formatCurrency(feePool.rewardDistribution.first)}</div>
+                  <div className="text-white font-semibold text-sm">{formatCurrency((feePool || fallbackFeePool).rewardDistribution.first)}</div>
                   <div className="text-zinc-600 text-xs">50%</div>
                 </div>
                 <div className="text-center">
                   <div className="text-zinc-300 text-xs font-semibold mb-1">2nd Place</div>
-                  <div className="text-white font-semibold text-sm">{formatCurrency(feePool.rewardDistribution.second)}</div>
+                  <div className="text-white font-semibold text-sm">{formatCurrency((feePool || fallbackFeePool).rewardDistribution.second)}</div>
                   <div className="text-zinc-600 text-xs">30%</div>
                 </div>
                 <div className="text-center">
                   <div className="text-orange-400 text-xs font-semibold mb-1">3rd Place</div>
-                  <div className="text-white font-semibold text-sm">{formatCurrency(feePool.rewardDistribution.third)}</div>
+                  <div className="text-white font-semibold text-sm">{formatCurrency((feePool || fallbackFeePool).rewardDistribution.third)}</div>
                   <div className="text-zinc-600 text-xs">20%</div>
                 </div>
               </div>
@@ -167,8 +173,8 @@ export default function LeaderboardPage() {
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-            <p className="text-red-400 text-sm">{error}</p>
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4">
+            <p className="text-zinc-400 text-sm">{error}</p>
           </div>
         )}
 

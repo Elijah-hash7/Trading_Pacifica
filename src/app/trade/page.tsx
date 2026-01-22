@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import TradingChart from '@/components/TradingChart';
 import TradingForm from '@/components/TradingForm';
-import BottomNav from '@/components/BottomNav';
 import OrdersDropdown from '@/components/OrdersDropdown';
 import { X, Check } from 'lucide-react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useFarcaster } from '@/hooks/useFarcaster';
 
 type TradingPair = {
@@ -45,6 +44,7 @@ const TRADING_PAIRS: TradingPair[] = [
 ];
 
 export default function TradePage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialSymbol = searchParams.get('pair')?.toUpperCase() ?? null;
   const activeSymbolRef = useRef<string | null>(null);
@@ -95,8 +95,8 @@ export default function TradePage() {
   }, [fetchPairs]);
 
   useEffect(() => {
-    const match = pairs.find((pair) => pair.symbol === initialSymbol);
-    const nextPair = match || pairs[0] || null;
+    const match = initialSymbol ? pairs.find((pair) => pair.symbol === initialSymbol) : null;
+    const nextPair = match || selectedPair || pairs[0] || null;
     if (!nextPair) return;
     if (activeSymbolRef.current === nextPair.symbol && selectedPair?.symbol === nextPair.symbol) return;
     activeSymbolRef.current = nextPair.symbol;
@@ -110,8 +110,9 @@ export default function TradePage() {
   const handlePairSelect = (pair: TradingPair) => {
     activeSymbolRef.current = pair.symbol;
     setSelectedPair(pair);
-    fetchPairPrice(pair);
+    void fetchPairPrice(pair);
     setShowPairSelector(false);
+    router.replace(`/trade?pair=${encodeURIComponent(pair.symbol)}`);
   };
 
   return (
