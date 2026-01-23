@@ -6,6 +6,7 @@ Pacificast is a mobile-first perpetual trading UI built with Next.js and the Far
 - Positions + orders views
 - Limit order monitoring via cron
 - Swap + send modals with rate and gas fee estimates
+- Farcaster miniapp verification via `/.well-known/farcaster.json`
 
 ## Local Setup
 1) Install dependencies
@@ -35,6 +36,26 @@ Deploy on Vercel (recommended):
    - `CRON_SECRET`
    - `BUILDER_CODE`
 3) Deploy
+
+## Farcaster Verification
+Warpcast requires a `/.well-known/farcaster.json` file to verify your domain.
+
+Make sure this file exists at:
+```
+public/.well-known/farcaster.json
+```
+
+Required fields:
+- `accountAssociation` (provided by Farcaster)
+- `frame.version`
+- `frame.name`
+- `frame.iconUrl`
+- `frame.homeUrl`
+
+After deploy, verify it loads:
+```
+https://<your-domain>/.well-known/farcaster.json
+```
 
 ## Cron (Limit Orders)
 Limit orders are checked via `GET /api/cron/check-limits`.
