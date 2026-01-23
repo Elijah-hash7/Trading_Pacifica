@@ -38,7 +38,7 @@ const tokenColors: Record<string, string> = {
 };
 
 export default function HomePage() {
-  const { user, wallet, walletAddress, isLoading, connectWallet, disconnectWallet, logout } = useFarcaster();
+  const { user, wallet, walletAddress, isLoading, isFarcasterClient, connectWallet, disconnectWallet, logout } = useFarcaster();
   const { pushToast } = useToast();
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [walletBalanceEth, setWalletBalanceEth] = useState<number | null>(null);
@@ -78,7 +78,11 @@ export default function HomePage() {
       setConnectingWallet(true);
       setConnectWalletError(null);
       if (!user) {
-        setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
+        setConnectWalletError(
+          isFarcasterClient
+            ? 'Farcaster context is not ready yet. Try again in a moment.'
+            : 'Open in Warpcast to connect your Farcaster wallet.'
+        );
         return;
       }
 
@@ -88,7 +92,11 @@ export default function HomePage() {
       console.error('Wallet connection failed:', err);
       const message = err instanceof Error ? err.message : 'Failed to connect wallet';
       if (/Warpcast|Farcaster|provider not available|Open this app inside/i.test(message)) {
-        setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
+        setConnectWalletError(
+          isFarcasterClient
+            ? 'Farcaster wallet provider not ready. Try again or reopen the miniapp.'
+            : 'Open in Warpcast to connect your Farcaster wallet.'
+        );
       } else {
         setConnectWalletError(message);
       }
@@ -456,15 +464,17 @@ export default function HomePage() {
                   {connectWalletError}
                 </span>
                 <div className="flex items-center gap-2 shrink-0">
-                  <a
-                    href="https://warpcast.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-100 hover:bg-zinc-800"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Warpcast
-                  </a>
+                  {!isFarcasterClient && (
+                    <a
+                      href="https://warpcast.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[11px] font-semibold text-zinc-100 hover:bg-zinc-800"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Warpcast
+                    </a>
+                  )}
                   <button
                     type="button"
                     onClick={() => setConnectWalletError(null)}

@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Call check-limits endpoint
         env:
-          CRON_URL: ${{ secrets.CRON_URL }}
+          CRON_URL: https://pacificast-nine.vercel.app/api/cron/check-limits
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_URL" ] || [ -z "$CRON_SECRET" ]; then

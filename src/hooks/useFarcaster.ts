@@ -17,6 +17,7 @@ export function useFarcaster() {
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFarcasterClient, setIsFarcasterClient] = useState(false);
 
   useEffect(() => {
     initializeFarcaster();
@@ -25,6 +26,9 @@ export function useFarcaster() {
   const initializeFarcaster = async () => {
     try {
       setIsLoading(true);
+      if (typeof window !== 'undefined') {
+        setIsFarcasterClient(Boolean((window as unknown as { farcasterEthereum?: unknown }).farcasterEthereum));
+      }
 
       
       await sdk.actions.ready();
@@ -67,7 +71,8 @@ export function useFarcaster() {
   const getProvider = () => {
     if (typeof window === 'undefined') return null;
     const w = window as unknown as { ethereum?: unknown; farcasterEthereum?: unknown };
-    const provider = (w.ethereum ?? w.farcasterEthereum ?? null) as unknown;
+    // Prefer Farcaster's injected provider to avoid bouncing out of the miniapp.
+    const provider = (w.farcasterEthereum ?? w.ethereum ?? null) as unknown;
     if (!provider) return null;
     const maybe = provider as { request?: unknown; on?: unknown; removeListener?: unknown };
     if (typeof maybe.request !== 'function') return null;
@@ -181,6 +186,7 @@ export function useFarcaster() {
     walletAddress: getWalletAddress(),
     isLoading,
     error,
+    isFarcasterClient,
     connectWallet,
     disconnectWallet,
     logout,

@@ -37,6 +37,11 @@ Deploy on Vercel (recommended):
    - `BUILDER_CODE`
 3) Deploy
 
+Production URL:
+```
+https://pacificast-nine.vercel.app
+```
+
 ## Farcaster Verification
 Warpcast requires a `/.well-known/farcaster.json` file to verify your domain.
 
@@ -62,9 +67,9 @@ Limit orders are checked via `GET /api/cron/check-limits`.
 
 For Vercel Hobby, cron is limited to once per day. This repo includes a GitHub Action to ping the endpoint every 5 minutes instead.
 
-Configure GitHub Action secrets:
-- `CRON_URL` = `https://<your-domain>/api/cron/check-limits`
-- `CRON_SECRET` = your secret value
+GitHub Action:
+- URL is pinned in `.github/workflows/cron-check-limits.yml`
+- Secret required: `CRON_SECRET`
 
 ## Notes
 - Env vars are not committed; configure them in your host dashboard.

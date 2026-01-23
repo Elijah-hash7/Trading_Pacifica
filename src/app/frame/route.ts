@@ -69,7 +69,7 @@ export async function GET(request: Request) {
         font-size: 13px;
         line-height: 1.45;
       }
-      button {
+      .cta {
         padding: 10px 16px;
         font-size: 13px;
         cursor: pointer;
@@ -78,6 +78,10 @@ export async function GET(request: Request) {
         color: white;
         border-radius: 10px;
         width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
       }
     </style>
   </head>
@@ -88,24 +92,8 @@ export async function GET(request: Request) {
       </div>
       <h1>Welcome to Pacificast!</h1>
       <p>Click the button to connect your wallet and start using the dapp.</p>
-      <button id="connectWalletBtn">Connect Wallet</button>
+      <a class="cta" href="${origin}">Open Pacificast</a>
     </div>
-    <script>
-      const connectButton = document.getElementById("connectWalletBtn");
-      connectButton.addEventListener("click", async () => {
-        if (!window.farcaster) {
-          alert("Please open this in the Farcaster app!");
-          return;
-        }
-        try {
-          const wallet = await window.farcaster.connect();
-          alert("Connected! Wallet address: " + wallet.address);
-        } catch (err) {
-          console.error(err);
-          alert("Wallet connection failed. Check console for errors.");
-        }
-      });
-    </script>
   </body>
 </html>`;
 
