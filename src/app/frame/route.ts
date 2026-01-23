@@ -18,61 +18,74 @@ export async function GET(request: Request) {
     <meta name="fc:frame:homeUrl" content="${origin}" />
     <meta name="fc:frame:buttonTitle" content="Open Pacificast" />
     <style>
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
         min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: radial-gradient(circle at top, #0f172a, #05060c 60%);
-        color: #e2e8f0;
+        padding: 24px 18px;
+        background: radial-gradient(circle at top, #141726, #06070d 60%);
+        color: #e5e7eb;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       }
       .card {
-        width: min(520px, 92vw);
-        background: #0b1220;
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 20px;
-        padding: 28px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        width: min(340px, 92vw);
+        background: linear-gradient(180deg, rgba(20, 22, 30, 0.98), rgba(13, 15, 20, 0.98));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px;
+        padding: 22px 18px 24px;
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.65);
         text-align: center;
       }
       .logo {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        border: 2px solid rgba(56, 189, 248, 0.6);
+        width: 70px;
+        height: 70px;
+        border-radius: 16px;
+        border: 1px solid rgba(34, 197, 94, 0.35);
         margin: 0 auto 16px;
-        background: #0f172a;
+        background: #0b0d13;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 32px;
-        font-weight: 700;
-        color: #38bdf8;
+      }
+      .logo img {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+        border-radius: 12px;
       }
       h1 {
         margin: 0 0 8px;
-        font-size: 24px;
+        font-size: 19px;
+        font-weight: 700;
       }
       p {
-        margin: 0 0 20px;
-        color: #94a3b8;
+        margin: 0 0 18px;
+        color: #a1a1aa;
+        font-size: 13px;
+        line-height: 1.45;
       }
       button {
-        padding: 12px 20px;
-        font-size: 16px;
+        padding: 10px 16px;
+        font-size: 13px;
         cursor: pointer;
         border: none;
-        background: linear-gradient(135deg, #38bdf8, #4f46e5);
+        background: linear-gradient(135deg, #22c55e, #16a34a);
         color: white;
         border-radius: 10px;
+        width: 100%;
       }
     </style>
   </head>
   <body>
     <div class="card">
-      <div class="logo">P</div>
+      <div class="logo">
+        <img src="${origin}/icon.png" alt="Pacificast" />
+      </div>
       <h1>Welcome to Pacificast!</h1>
       <p>Click the button to connect your wallet and start using the dapp.</p>
       <button id="connectWalletBtn">Connect Wallet</button>
