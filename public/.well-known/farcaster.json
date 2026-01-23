@@ -6,9 +6,9 @@
   },
   "frame": {
     "version": "1",
-    "name": "Example Frame",
+    "name": "Pacificast",
     "iconUrl": "https://pacificast-nine.vercel.app/icon.png",
     "homeUrl": "https://pacificast-nine.vercel.app",
-    "buttonTitle": "Check this out"
+    "buttonTitle": "Open in Warpcast"
   }
 }
