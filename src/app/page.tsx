@@ -77,12 +77,18 @@ export default function HomePage() {
     try {
       setConnectingWallet(true);
       setConnectWalletError(null);
+
+      if (isLoading && isFarcasterClient) {
+        pushToast('Loading Farcaster… try again in a moment.', { variant: 'info' });
+        return;
+      }
+
       if (!user) {
-        setConnectWalletError(
-          isFarcasterClient
-            ? 'Farcaster context is not ready yet. Try again in a moment.'
-            : 'Open in Warpcast to connect your Farcaster wallet.'
-        );
+        if (!isFarcasterClient) {
+          setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
+        } else {
+          pushToast('Farcaster context not available yet. Try again in a moment.', { variant: 'info' });
+        }
         return;
       }
 
@@ -448,7 +454,7 @@ export default function HomePage() {
             </button>
             <button
               onClick={handleConnectWallet}
-              disabled={connectingWallet}
+              disabled={connectingWallet || (isLoading && isFarcasterClient)}
               className="h-9 px-3 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 text-xs font-medium text-zinc-300 disabled:opacity-60 hover:cursor-pointer"
             >
               {wallet?.isConnected ? truncateAddress(walletAddress) : 'Connect wallet'}

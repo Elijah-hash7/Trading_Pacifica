@@ -26,15 +26,24 @@ export function useFarcaster() {
   const initializeFarcaster = async () => {
     try {
       setIsLoading(true);
+      let inClient = false;
       if (typeof window !== 'undefined') {
-        setIsFarcasterClient(Boolean((window as unknown as { farcasterEthereum?: unknown }).farcasterEthereum));
+        inClient = Boolean((window as unknown as { farcasterEthereum?: unknown }).farcasterEthereum);
       }
 
-      
+      // In a normal browser, this can throw or never provide a user context.
       await sdk.actions.ready();
+      inClient = true;
 
       // Get user context (it's async)
       const context = await sdk.context;
+
+      // If context exists, we're definitely inside a Farcaster miniapp.
+      if (context) {
+        inClient = true;
+      }
+
+      setIsFarcasterClient(inClient);
 
       if (context?.user) {
         const farcasterUser: FarcasterUser = {
@@ -63,6 +72,7 @@ export function useFarcaster() {
     } catch (err) {
       console.error('Farcaster init error:', err);
       setError('Failed to connect to Farcaster');
+      setIsFarcasterClient(false);
     } finally {
       setIsLoading(false);
     }
