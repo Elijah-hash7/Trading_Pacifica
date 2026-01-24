@@ -3,7 +3,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useFarcaster } from '@/hooks/useFarcaster';
 import { TrendingUp, TrendingDown, Send, ArrowLeftRight, Search, X, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
-import BottomNav from '@/components/BottomNav';
 import { useToast } from '@/components/ToastProvider';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Loading from './loading';
@@ -81,40 +80,21 @@ export default function HomePage() {
   const handleConnectWallet = async () => {
     try {
       setConnectingWallet(true);
-      setConnectWalletError(null);
 
-      if (isLoading && inFarcasterClient) {
-        pushToast('Loading Farcaster… try again in a moment.', { variant: 'info' });
-        return;
-      }
+      await connectWallet(); // throws if not in Warpcast
 
-      if (!inFarcasterClient && !user) {
-        setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
-        return;
-      }
-
-      if (wallet.isConnected) await disconnectWallet();
-      else await connectWallet();
     } catch (err) {
-      console.error('Wallet connection failed:', err);
-      const message = err instanceof Error ? err.message : 'Failed to connect wallet';
-      if (/Warpcast|Farcaster|provider not available|Open this app inside/i.test(message)) {
-        if (!inFarcasterClient) {
-          setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
-        } else {
-          pushToast('Farcaster wallet provider not ready. Try again or reopen the miniapp.', { variant: 'warning' });
-        }
-      } else {
-        if (!inFarcasterClient) {
-          setConnectWalletError(message);
-        } else {
-          pushToast(message, { variant: 'error' });
-        }
-      }
+      const message = err instanceof Error ? err.message : "Failed to connect wallet";
+
+      // browser / not in miniapp UX
+      pushToast(message.includes("Warpcast") ? "Open in Warpcast to connect wallet." : message, {
+        variant: "warning",
+      });
     } finally {
       setConnectingWallet(false);
     }
   };
+
 
 
   useEffect(() => {
@@ -713,9 +693,9 @@ export default function HomePage() {
                   {swapQuoteLoading
                     ? 'Loading...'
                     : swapQuote?.rateLabel ||
-                      (swapQuoteError === 'Unsupported token pair'
-                        ? 'Pair not supported'
-                        : swapQuoteError || 'Unavailable')}
+                    (swapQuoteError === 'Unsupported token pair'
+                      ? 'Pair not supported'
+                      : swapQuoteError || 'Unavailable')}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
