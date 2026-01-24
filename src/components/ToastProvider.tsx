@@ -56,7 +56,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`mx-auto w-full max-w-sm rounded-xl border px-3 py-2 text-sm shadow-lg backdrop-blur ${variantStyles[toast.variant]}`}
+              className={`mx-auto w-full max-w-xs rounded-lg border px-3 py-1.5 text-xs shadow-lg backdrop-blur ${variantStyles[toast.variant]}`}
             >
               {toast.message}
             </div>

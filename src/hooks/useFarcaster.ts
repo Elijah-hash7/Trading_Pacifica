@@ -109,7 +109,9 @@ export function useFarcaster() {
     if (typeof window === 'undefined') return null;
     const w = window as unknown as { ethereum?: unknown; farcasterEthereum?: unknown };
     // Prefer Farcaster's injected provider to avoid bouncing out of the miniapp.
-    const provider = (w.farcasterEthereum ?? w.ethereum ?? null) as unknown;
+    // If we're inside a Farcaster client, only use farcasterEthereum to ensure
+    // the inbuilt Warpcast wallet popup is triggered (not an external wallet).
+    const provider = (isFarcasterClient ? w.farcasterEthereum : (w.farcasterEthereum ?? w.ethereum)) as unknown;
     if (!provider) return null;
     const maybe = provider as { request?: unknown; on?: unknown; removeListener?: unknown };
     if (typeof maybe.request !== 'function') return null;
@@ -118,6 +120,18 @@ export function useFarcaster() {
       on?: (event: string, handler: (payload: unknown) => void) => void;
       removeListener?: (event: string, handler: (payload: unknown) => void) => void;
     };
+  };
+
+  const waitForProvider = async (opts?: { timeoutMs?: number; intervalMs?: number }) => {
+    const timeoutMs = opts?.timeoutMs ?? 2500;
+    const intervalMs = opts?.intervalMs ?? 125;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const provider = getProvider();
+      if (provider) return provider;
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return null;
   };
 
   const normalizeAddress = (addr: unknown) => {
@@ -187,9 +201,9 @@ export function useFarcaster() {
       throw new Error('Farcaster user not available. Open this app inside a Farcaster client (e.g. Warpcast).');
     }
 
-    const provider = getProvider();
+    const provider = (await waitForProvider()) ?? getProvider();
     if (!provider) {
-      throw new Error('Farcaster wallet provider not available in this client.');
+      throw new Error('Farcaster wallet provider not ready. Reopen the miniapp or update Warpcast and try again.');
     }
 
     const accounts = await provider.request({ method: 'eth_requestAccounts' });
