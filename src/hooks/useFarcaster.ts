@@ -23,6 +23,47 @@ export function useFarcaster() {
     initializeFarcaster();
   }, []);
 
+  const buildUserFromContext = (context: unknown): FarcasterUser | null => {
+    const ctx = context as { user?: unknown };
+    const ctxUser = ctx?.user as
+      | {
+          fid: number;
+          username?: string;
+          displayName?: string;
+          pfpUrl?: string;
+        }
+      | undefined;
+
+    if (!ctxUser?.fid) return null;
+
+    const farcasterUser: FarcasterUser = {
+      fid: ctxUser.fid,
+      username: ctxUser.username || `user${ctxUser.fid}`,
+      displayName: ctxUser.displayName || ctxUser.username || 'Anonymous',
+      pfpUrl: ctxUser.pfpUrl,
+    };
+
+    // Type cast to access custody/verifications
+    const userAny = ctxUser as unknown as { custody?: unknown; verifications?: unknown };
+    if (typeof userAny.custody === 'string') {
+      farcasterUser.custody = userAny.custody;
+    }
+
+    if (Array.isArray(userAny.verifications)) {
+      farcasterUser.verifications = userAny.verifications.filter((v): v is string => typeof v === 'string');
+    }
+
+    return farcasterUser;
+  };
+
+  const setUserFromContext = async (context: unknown) => {
+    const farcasterUser = buildUserFromContext(context);
+    if (!farcasterUser) return null;
+    setUser(farcasterUser);
+    await syncUserToBackend(farcasterUser);
+    return farcasterUser;
+  };
+
   const initializeFarcaster = async () => {
     try {
       setIsLoading(true);
@@ -31,43 +72,29 @@ export function useFarcaster() {
         inClient = Boolean((window as unknown as { farcasterEthereum?: unknown }).farcasterEthereum);
       }
 
-      // In a normal browser, this can throw or never provide a user context.
+      // In a normal browser, ready/context may be unavailable or provide no user.
+      // Do NOT treat "ready" success alone as proof of being in a Farcaster client.
       await sdk.actions.ready();
-      inClient = true;
 
       // Get user context (it's async)
       const context = await sdk.context;
 
-      // If context exists, we're definitely inside a Farcaster miniapp.
+      // Only treat this as a Farcaster miniapp if we have concrete signals.
+      // - injected farcaster provider (window.farcasterEthereum)
+      // - a user context from the SDK
+      if (context?.user?.fid) {
+        inClient = true;
+      }
+
+      // Some Farcaster clients may provide context before provider/user is ready.
+      // A non-null context is still a strong signal that we're inside a Farcaster miniapp.
       if (context) {
         inClient = true;
       }
 
       setIsFarcasterClient(inClient);
 
-      if (context?.user) {
-        const farcasterUser: FarcasterUser = {
-          fid: context.user.fid,
-          username: context.user.username || `user${context.user.fid}`,
-          displayName: context.user.displayName || context.user.username || 'Anonymous',
-          pfpUrl: context.user.pfpUrl,
-        };
-
-        // Type cast to access custody/verifications
-        const userAny = context.user as unknown as { custody?: unknown; verifications?: unknown };
-        if (typeof userAny.custody === 'string') {
-          farcasterUser.custody = userAny.custody;
-        }
-
-        if (Array.isArray(userAny.verifications)) {
-          farcasterUser.verifications = userAny.verifications.filter((v): v is string => typeof v === 'string');
-        }
-
-        setUser(farcasterUser);
-
-        // Sync user to backend
-        await syncUserToBackend(farcasterUser);
-      }
+      await setUserFromContext(context);
 
     } catch (err) {
       console.error('Farcaster init error:', err);
@@ -135,14 +162,28 @@ export function useFarcaster() {
     if (user?.custody && typeof user.custody === 'string') {
       return user.custody;
     }
-    return user?.fid ? `fid_${user.fid}` : 'demo_wallet_123';
+    return '';
   };
 
 
   const connectWallet = async () => {
-    // First ensure we have Farcaster user context. Outside of a Farcaster client,
-    // sdk.context may not have a user and wallet connection is not possible.
-    if (!user) {
+    // Ensure we have Farcaster user context. On first load inside Farcaster,
+    // `user` can be null briefly; retry fetching sdk.context before failing.
+    let effectiveUser = user;
+    if (!effectiveUser) {
+      try {
+        await sdk.actions.ready();
+        const context = await sdk.context;
+        if (context) {
+          setIsFarcasterClient(true);
+        }
+        effectiveUser = (await setUserFromContext(context)) ?? null;
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!effectiveUser) {
       throw new Error('Farcaster user not available. Open this app inside a Farcaster client (e.g. Warpcast).');
     }
 
@@ -182,6 +223,7 @@ export function useFarcaster() {
   const logout = async () => {
     setConnectedAddress(null);
     setUser(null);
+    setError(null);
   };
 
   const wallet = {
