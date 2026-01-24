@@ -39,6 +39,11 @@ const tokenColors: Record<string, string> = {
 
 export default function HomePage() {
   const { user, wallet, walletAddress, isLoading, isFarcasterClient, connectWallet, disconnectWallet, logout } = useFarcaster();
+  const inFarcasterClient =
+    isFarcasterClient ||
+    (typeof window !== 'undefined' &&
+      (Boolean((window as unknown as { farcasterEthereum?: unknown }).farcasterEthereum) ||
+        Boolean((window as unknown as { farcaster?: unknown }).farcaster)));
   const { pushToast } = useToast();
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [walletBalanceEth, setWalletBalanceEth] = useState<number | null>(null);
@@ -78,17 +83,13 @@ export default function HomePage() {
       setConnectingWallet(true);
       setConnectWalletError(null);
 
-      if (isLoading && isFarcasterClient) {
+      if (isLoading && inFarcasterClient) {
         pushToast('Loading Farcaster… try again in a moment.', { variant: 'info' });
         return;
       }
 
-      if (!user) {
-        if (!isFarcasterClient) {
-          setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
-        } else {
-          pushToast('Farcaster context not available yet. Try again in a moment.', { variant: 'info' });
-        }
+      if (!inFarcasterClient && !user) {
+        setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
         return;
       }
 
@@ -98,13 +99,17 @@ export default function HomePage() {
       console.error('Wallet connection failed:', err);
       const message = err instanceof Error ? err.message : 'Failed to connect wallet';
       if (/Warpcast|Farcaster|provider not available|Open this app inside/i.test(message)) {
-        setConnectWalletError(
-          isFarcasterClient
-            ? 'Farcaster wallet provider not ready. Try again or reopen the miniapp.'
-            : 'Open in Warpcast to connect your Farcaster wallet.'
-        );
+        if (!inFarcasterClient) {
+          setConnectWalletError('Open in Warpcast to connect your Farcaster wallet.');
+        } else {
+          pushToast('Farcaster wallet provider not ready. Try again or reopen the miniapp.', { variant: 'warning' });
+        }
       } else {
-        setConnectWalletError(message);
+        if (!inFarcasterClient) {
+          setConnectWalletError(message);
+        } else {
+          pushToast(message, { variant: 'error' });
+        }
       }
     } finally {
       setConnectingWallet(false);
@@ -463,14 +468,14 @@ export default function HomePage() {
         </header>
 
         {connectWalletError && (
-          <div className="fixed inset-x-0 top-24 z-50 px-4">
+          <div className="fixed inset-x-0 top-6 z-50 px-4">
             <div className="mx-auto w-full max-w-sm rounded-2xl border border-zinc-700/60 bg-zinc-900/95 text-zinc-100 shadow-lg backdrop-blur">
               <div className="flex items-start justify-between gap-3 px-3 py-3">
                 <span className="text-xs leading-snug text-zinc-100/90 pr-1">
                   {connectWalletError}
                 </span>
                 <div className="flex items-center gap-2 shrink-0">
-                  {!isFarcasterClient && (
+                  {!inFarcasterClient && (
                     <a
                       href="https://warpcast.com"
                       target="_blank"
