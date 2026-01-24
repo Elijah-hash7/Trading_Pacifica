@@ -468,7 +468,7 @@ export default function HomePage() {
         </header>
 
         {connectWalletError && (
-          <div className="fixed inset-x-0 top-6 z-50 px-4">
+          <div className="fixed inset-x-0 bottom-24 z-50 px-4">
             <div className="mx-auto w-full max-w-sm rounded-2xl border border-zinc-700/60 bg-zinc-900/95 text-zinc-100 shadow-lg backdrop-blur">
               <div className="flex items-start justify-between gap-3 px-3 py-3">
                 <span className="text-xs leading-snug text-zinc-100/90 pr-1">
