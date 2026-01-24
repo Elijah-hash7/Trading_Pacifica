@@ -11,12 +11,14 @@ jobs:
     steps:
       - name: Call check-limits endpoint
         env:
-          CRON_URL: https://pacificast-nine.vercel.app/api/cron/check-limits
+          CRON_URL: ${{ secrets.CRON_URL || vars.CRON_URL || 'https://trading-pacificast.vercel.app/api/cron/check-limits' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "Missing CRON_URL or CRON_SECRET secrets."
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET. Add it in GitHub repo settings (Actions → Secrets and variables)."
             exit 1
           fi
-          curl -sS -X GET "$CRON_URL" \
-            -H "Authorization: Bearer $CRON_SECRET"
+          echo "Pinging: $CRON_URL"
+          curl --fail-with-body -sS -X GET "$CRON_URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "User-Agent: github-actions-cron"
