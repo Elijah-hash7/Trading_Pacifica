@@ -77,23 +77,40 @@ export default function HomePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  const getErrMessage = (err: unknown) => {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      // many wallet libs throw { message, code }
+      const anyErr = err as { message?: unknown };
+      if (typeof anyErr.message === "string") return anyErr.message;
+      try {
+        return JSON.stringify(err);
+      } catch {
+        return "Failed to connect wallet";
+      }
+    }
+    return "Failed to connect wallet";
+  };
+
   const handleConnectWallet = async () => {
     try {
       setConnectingWallet(true);
-
-      await connectWallet(); // throws if not in Warpcast
-
+      await connectWallet();
+      pushToast("Wallet connected ✅", { variant: "success" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to connect wallet";
+      const message = getErrMessage(err);
 
-      // browser / not in miniapp UX
-      pushToast(message.includes("Warpcast") ? "Open in Warpcast to connect wallet." : message, {
-        variant: "warning",
-      });
+      if (/Warpcast|Farcaster|miniapp/i.test(message)) {
+        pushToast("Open in Warpcast to connect wallet.", { variant: "info" });
+      } else {
+        pushToast(message, { variant: "error" });
+      }
     } finally {
       setConnectingWallet(false);
     }
   };
+
 
 
 
@@ -281,8 +298,11 @@ export default function HomePage() {
   }, [wallet?.isConnected, walletAddress]);
 
   const fetchPairs = useCallback(async () => {
+    let timeoutId: number | undefined;
+    const controller = new AbortController();
     try {
-      const response = await fetch('/api/pairs');
+      timeoutId = window.setTimeout(() => controller.abort(), 8000);
+      const response = await fetch('/api/pairs', { signal: controller.signal });
       const data = await response.json();
       const pairsWithPrices = data.pairs || [];
 
@@ -317,6 +337,8 @@ export default function HomePage() {
     } catch (err) {
       console.error('Error fetching pairs:', err);
       setLoading(false);
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
     }
   }, []);
 
@@ -489,7 +511,7 @@ export default function HomePage() {
             <div className="text-3xl font-bold tracking-tight mb-2">{balanceLabel()}</div>
             {walletBalanceError && (
               <div className="mt-2 text-xs text-zinc-500">
-                {walletBalanceError}
+                Balance fetch failed. Please retry shortly.
               </div>
             )}
           </div>

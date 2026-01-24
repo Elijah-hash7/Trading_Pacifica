@@ -1,5 +1,4 @@
 {
-
   "accountAssociation": {
     "header": "eyJmaWQiOjI0NDIyMzgsInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHgzRWFjQzY3YmREMjEzMEI1QzhhMTBkYjczRjkyZENBQTBmRDQ5RDVBIn0",
     "payload": "eyJkb21haW4iOiJ0cmFkaW5nLXBhY2lmaWNhc3QudmVyY2VsLmFwcCJ9",
@@ -11,6 +10,6 @@
     "iconUrl": "https://trading-pacificast.vercel.app/icon.png",
     "homeUrl": "https://trading-pacificast.vercel.app",
     "buttonTitle": "Open in Warpcast",
-     "requiredCapabilities": ["wallet.getEthereumProvider"]
+    "requiredCapabilities": ["wallet.getEthereumProvider"]
   }
 }

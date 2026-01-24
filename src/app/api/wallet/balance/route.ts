@@ -1,6 +1,42 @@
 import { NextResponse } from 'next/server';
 
-const RPC_URL = 'https://cloudflare-eth.com';
+const RPC_URLS = [
+  'https://cloudflare-eth.com',
+  'https://rpc.ankr.com/eth',
+];
+
+const fetchBalance = async (address: string) => {
+  for (const rpcUrl of RPC_URLS) {
+    try {
+      const rpcRes = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getBalance',
+          params: [address, 'latest'],
+        }),
+        cache: 'no-store',
+      });
+
+      if (!rpcRes.ok) {
+        continue;
+      }
+
+      const rpcJson: { result?: string; error?: unknown } = await rpcRes.json();
+      if (!rpcJson?.result || typeof rpcJson.result !== 'string') {
+        continue;
+      }
+
+      return { ok: true as const, result: rpcJson.result };
+    } catch {
+      continue;
+    }
+  }
+
+  return { ok: false as const };
+};
 
 export async function GET(request: Request) {
   try {
@@ -15,36 +51,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Invalid address' }, { status: 400 });
     }
 
-    const rpcRes = await fetch(RPC_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_getBalance',
-        params: [address, 'latest'],
-      }),
-    });
-
-    if (!rpcRes.ok) {
-      const text = await rpcRes.text().catch(() => '');
+    const result = await fetchBalance(address);
+    if (!result.ok) {
       return NextResponse.json(
-        { error: 'RPC error', details: `${rpcRes.status} ${rpcRes.statusText} ${text.slice(0, 200)}` },
+        { error: 'RPC unavailable', details: 'All RPC providers failed' },
         { status: 502 }
       );
     }
 
-    const rpcJson: { result?: string; error?: unknown } = await rpcRes.json();
-    if (!rpcJson?.result || typeof rpcJson.result !== 'string') {
-      return NextResponse.json({ error: 'Invalid RPC response', details: rpcJson?.error }, { status: 502 });
-    }
-
-    const wei = BigInt(rpcJson.result);
+    const wei = BigInt(result.result);
     const eth = Number(wei) / 1e18;
     const weiPerFinney = BigInt('1000000000000000');
     const ethExact = (wei / weiPerFinney).toString();
 
-    return NextResponse.json({ success: true, address, wei: rpcJson.result, eth, ethExact });
+    return NextResponse.json({ success: true, address, wei: result.result, eth, ethExact });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: 'Internal server error', details: message }, { status: 500 });
