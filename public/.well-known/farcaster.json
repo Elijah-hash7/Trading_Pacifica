@@ -1,0 +1,14 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Pacificast",
+    "iconUrl": "https://trading-pacificast.vercel.app/icon.png",
+    "homeUrl": "https://trading-pacificast.vercel.app",
+    "buttonTitle": "Open in Warpcast"
+  }
+}
