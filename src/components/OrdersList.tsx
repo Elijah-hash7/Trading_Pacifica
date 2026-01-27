@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { Clock, X, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Clock, X, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
 import { extractAddress } from '@/lib/extractAddress';
 
@@ -35,33 +35,11 @@ export default function OrdersList({ walletAddress }: OrdersListProps) {
   // Error state
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch orders when component mounts or wallet changes
-  useEffect(() => {
-    if (walletAddress) {
-      fetchOrders();
-    }
-  }, [walletAddress]);
-
-  // Set up polling: Refresh orders every 15 seconds
-  useEffect(() => {
-    if (!walletAddress) return;
-    
-    // Poll every 15 seconds to check for filled orders
-    const interval = setInterval(() => {
-      fetchOrders();
-    }, 15000);
-    
-    // Cleanup
-    return () => clearInterval(interval);
-  }, [walletAddress]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Call your GET /api/orders endpoint
-      // This returns all orders (you might want to filter for pending only)
+
       const accountString = extractAddress(walletAddress) ?? '';
       if (!accountString) {
         console.warn('OrdersList: missing wallet address, skipping fetch');
@@ -70,27 +48,46 @@ export default function OrdersList({ walletAddress }: OrdersListProps) {
       }
 
       const response = await fetch(`/api/orders?account=${encodeURIComponent(accountString)}`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch orders');
       }
-      
+
       const data = await response.json();
-      
-      // Filter to show only pending orders (limit orders waiting to execute)
+
       const pendingOrders = (data.orders || []).filter(
         (order: Order) => order.status === 'pending'
       );
-      
+
       setOrders(pendingOrders);
-      
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       console.error('Error fetching orders:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [walletAddress]);
+
+  // Fetch orders when component mounts or wallet changes
+  useEffect(() => {
+    if (walletAddress) {
+      void fetchOrders();
+    }
+  }, [walletAddress, fetchOrders]);
+
+  // Set up polling: Refresh orders every 15 seconds
+  useEffect(() => {
+    if (!walletAddress) return;
+    
+    // Poll every 15 seconds to check for filled orders
+    const interval = setInterval(() => {
+      void fetchOrders();
+    }, 15000);
+    
+    // Cleanup
+    return () => clearInterval(interval);
+  }, [walletAddress, fetchOrders]);
 
   // Cancel a pending limit order
   const handleCancelOrder = async (orderId: string) => {
@@ -106,8 +103,8 @@ export default function OrdersList({ walletAddress }: OrdersListProps) {
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to cancel order');
+        const errorData = (await response.json().catch(() => ({}))) as { error?: unknown };
+        throw new Error(typeof errorData?.error === 'string' ? errorData.error : 'Failed to cancel order');
       }
       
       // Show success message

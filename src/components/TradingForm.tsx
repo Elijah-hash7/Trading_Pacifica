@@ -5,6 +5,8 @@ import React from "react"
 import { useState } from 'react';
 import { ArrowUpCircle, ArrowDownCircle, Info, X, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
+import { PublicKey } from '@solana/web3.js';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 interface OrderPreview {
   estPrice: number;
@@ -48,34 +50,34 @@ export default function TradingForm({
     accountLeverage: leverage,
   };
 
-  const getProvider = () => {
-    if (typeof window === 'undefined') return null;
-    const w = window as unknown as { ethereum?: unknown; farcasterEthereum?: unknown };
-    const provider = (w.farcasterEthereum ?? w.ethereum ?? null) as unknown;
-    if (!provider) return null;
-    const maybe = provider as { request?: unknown };
-    if (typeof maybe.request !== 'function') return null;
-    return provider as {
-      request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
-    };
+  const isValidSolAddress = (addr: string) => {
+    try {
+      new PublicKey(addr);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
-  const signMessage = async (account: string, message: string) => {
-    const provider = getProvider();
-    if (!provider) {
-      throw new Error('Wallet provider not available');
+  const toBase64 = (bytes: Uint8Array) => {
+    // browser-safe base64
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  };
+
+  const { publicKey, signMessage } = useWallet();
+
+  const signSolanaMessage = async (message: string) => {
+    if (!publicKey) {
+      throw new Error('Wallet not connected');
     }
-    try {
-      return (await provider.request({
-        method: 'personal_sign',
-        params: [message, account],
-      })) as string;
-    } catch {
-      return (await provider.request({
-        method: 'eth_sign',
-        params: [account, message],
-      })) as string;
+    if (!signMessage) {
+      throw new Error('Wallet does not support message signing');
     }
+    const encoded = new TextEncoder().encode(message);
+    const sigBytes = await signMessage(encoded); // Uint8Array
+    return toBase64(sigBytes);
   };
 
   async function handleSubmit(e?: React.FormEvent) {
@@ -86,8 +88,11 @@ export default function TradingForm({
       return;
     }
 
-    if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-      pushToast('Connect a Farcaster wallet to place orders', { variant: 'warning' });
+    // Use publicKey as source of truth
+    const account = publicKey?.toBase58() || walletAddress;
+
+    if (!account || !isValidSolAddress(account)) {
+      pushToast('Connect a Solana wallet in Warpcast to place orders', { variant: 'warning' });
       return;
     }
 
@@ -105,8 +110,9 @@ export default function TradingForm({
 
     try {
       const timeStamp = new Date().toISOString();
+
       const payload = {
-        account: walletAddress,
+        account, // solana base58
         symbol: selectedPair.symbol,
         amount: size,
         side: side === 'long' ? 'bid' : 'ask',
@@ -127,7 +133,8 @@ export default function TradingForm({
         `tick:${payload.tick_level ?? ''}`,
       ].join('\n');
 
-      const signature = await signMessage(walletAddress, signatureMessage);
+      
+      const signature = await signSolanaMessage(signatureMessage);
 
       const response = await fetch('/api/orders/create', {
         method: 'POST',
@@ -140,15 +147,11 @@ export default function TradingForm({
         throw new Error(err?.error || 'Failed to place order');
       }
 
-      pushToast(
-        `${orderType === 'market' ? 'Market' : 'Limit'} order placed`,
-        { variant: 'success' }
-      );
+      pushToast(`${orderType === 'market' ? 'Market' : 'Limit'} order placed`, { variant: 'success' });
 
       setSize('');
       setLimitPrice('');
       setShowPreview(false);
-
     } catch (error) {
       console.error('Error placing order:', error);
       pushToast(error instanceof Error ? error.message : 'Failed to place order', { variant: 'error' });
@@ -185,8 +188,8 @@ export default function TradingForm({
               type="button"
               onClick={() => setOrderType('market')}
               className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${orderType === 'market'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-zinc-400 hover:text-zinc-300'
+                ? 'bg-emerald-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-300'
                 }`}
             >
               Market
@@ -195,8 +198,8 @@ export default function TradingForm({
               type="button"
               onClick={() => setOrderType('limit')}
               className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${orderType === 'limit'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-zinc-400 hover:text-zinc-300'
+                ? 'bg-emerald-600 text-white'
+                : 'text-zinc-400 hover:text-zinc-300'
                 }`}
             >
               Limit
@@ -209,8 +212,8 @@ export default function TradingForm({
               type="button"
               onClick={() => setSide('long')}
               className={`flex-1 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${side === 'long'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
                 }`}
             >
               <ArrowUpCircle size={18} />
@@ -220,8 +223,8 @@ export default function TradingForm({
               type="button"
               onClick={() => setSide('short')}
               className={`flex-1 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${side === 'short'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                ? 'bg-red-600 text-white'
+                : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
                 }`}
             >
               <ArrowDownCircle size={18} />
@@ -334,8 +337,8 @@ export default function TradingForm({
             type="submit"
             disabled={loading}
             className={`w-full py-4 rounded-xl font-semibold text-white transition-all ${side === 'long'
-                ? 'bg-emerald-600 hover:bg-emerald-500'
-                : 'bg-red-600 hover:bg-red-500'
+              ? 'bg-emerald-600 hover:bg-emerald-500'
+              : 'bg-red-600 hover:bg-red-500'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {loading ? 'Placing Order...' : `${side.toUpperCase()} ${selectedPair.symbol}`}
@@ -426,8 +429,8 @@ export default function TradingForm({
                 }}
                 disabled={loading}
                 className={`w-full py-3.5 rounded-xl font-semibold text-white transition-all ${side === 'long'
-                    ? 'bg-emerald-600 hover:bg-emerald-500'
-                    : 'bg-red-600 hover:bg-red-500'
+                  ? 'bg-emerald-600 hover:bg-emerald-500'
+                  : 'bg-red-600 hover:bg-red-500'
                   } ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {loading ? 'Placing Order...' : 'Confirm Order'}

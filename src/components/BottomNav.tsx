@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, TrendingUp, Trophy, Menu, Sparkles } from 'lucide-react';
+import { TrendingUp, Trophy, Sparkles } from 'lucide-react';
 
 export default function BottomNav() {
   const pathname = usePathname();

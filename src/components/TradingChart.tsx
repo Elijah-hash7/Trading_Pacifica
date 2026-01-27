@@ -69,6 +69,42 @@ export default function TradingChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
 
+  const fetchChartData = useCallback(async (symbol: string) => {
+    setChartLoading(true);
+    setChartError(null);
+
+    const now = Date.now();
+    const lookback = 1000 * 60 * 60 * 24;
+
+    try {
+      const response = await fetch(
+        `https://api.pacifica.fi/api/v1/kline?symbol=${symbol}&interval=1m&start_time=${now - lookback}&end_time=${now}`
+      );
+
+      const json: { success?: boolean; data?: Kline[]; error?: string } = await response.json();
+      if (!json?.success || !Array.isArray(json.data)) {
+        throw new Error(json?.error || 'Unable to load chart data');
+      }
+
+      const candles: CandlestickData<UTCTimestamp>[] = json.data.map((c) => ({
+        time: toUTCTimestamp(Number(c.t)),
+        open: Number(c.o),
+        high: Number(c.h),
+        low: Number(c.l),
+        close: Number(c.c),
+      }));
+
+      candleSeriesRef.current?.setData(candles);
+      chartRef.current?.timeScale().fitContent();
+    } catch (error) {
+      console.error('Error fetching chart data:', error);
+      const message = error instanceof Error ? error.message : 'Failed to load chart';
+      setChartError(message);
+    } finally {
+      setChartLoading(false);
+    }
+  }, []);
+
   const fetchOrderbook = useCallback(async () => {
     if (!selectedPair?.symbol) return;
 
@@ -169,7 +205,7 @@ export default function TradingChart({
     };
 
     window.addEventListener('resize', handleResize);
-    fetchChartData(selectedPair.symbol);
+    void fetchChartData(selectedPair.symbol);
 
     return () => {
       window.removeEventListener('resize', handleResize);
@@ -177,43 +213,7 @@ export default function TradingChart({
       chartRef.current = null;
       candleSeriesRef.current = null;
     };
-  }, [selectedPair, viewMode]);
-
-  const fetchChartData = async (symbol: string) => {
-    setChartLoading(true);
-    setChartError(null);
-
-    const now = Date.now();
-    const lookback = 1000 * 60 * 60 * 24;
-
-    try {
-      const response = await fetch(
-        `https://api.pacifica.fi/api/v1/kline?symbol=${symbol}&interval=1m&start_time=${now - lookback}&end_time=${now}`
-      );
-
-      const json: { success?: boolean; data?: Kline[]; error?: string } = await response.json();
-      if (!json?.success || !Array.isArray(json.data)) {
-        throw new Error(json?.error || 'Unable to load chart data');
-      }
-
-      const candles: CandlestickData<UTCTimestamp>[] = json.data.map((c) => ({
-        time: toUTCTimestamp(Number(c.t)),
-        open: Number(c.o),
-        high: Number(c.h),
-        low: Number(c.l),
-        close: Number(c.c),
-      }));
-
-      candleSeriesRef.current?.setData(candles);
-      chartRef.current?.timeScale().fitContent();
-    } catch (error) {
-      console.error('Error fetching chart data:', error);
-      const message = error instanceof Error ? error.message : 'Failed to load chart';
-      setChartError(message);
-    } finally {
-      setChartLoading(false);
-    }
-  };
+  }, [selectedPair, viewMode, fetchChartData]);
 
   return (
     <div className="bg-zinc-950 rounded-2xl border border-zinc-800/50 overflow-hidden">

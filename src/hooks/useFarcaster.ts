@@ -1,7 +1,6 @@
-// src/hooks/useFarcaster.ts
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { sdk } from '@farcaster/miniapp-sdk';
 
 interface FarcasterUser {
@@ -13,50 +12,75 @@ interface FarcasterUser {
   verifications?: string[];
 }
 
-// EIP-1193-ish provider shape
-type Eip1193Provider = {
-  request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
-  on?: (event: string, handler: (payload: unknown) => void) => void;
-  removeListener?: (event: string, handler: (payload: unknown) => void) => void;
+type FarcasterContextUser = {
+  fid?: number;
+  username?: string;
+  displayName?: string;
+  pfpUrl?: string;
+  custody?: string;
+  verifications?: unknown;
 };
+
+type FarcasterMiniappContext = {
+  user?: FarcasterContextUser;
+};
+
+type SdkWithSolanaWallet = typeof sdk & {
+  wallet?: {
+    getSolanaProvider?: () => Promise<unknown>;
+  };
+};
+
+type SolanaProvider = {
+  publicKey?: { toBase58: () => string };
+  connect?: () => Promise<void>;
+  disconnect?: () => Promise<void>;
+  request?: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
+};
+
+function withTimeout<T>(p: Promise<T>, ms = 2500): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms);
+    p.then((v) => {
+      clearTimeout(t);
+      resolve(v);
+    }).catch((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+  });
+}
+
+const SOL_RPC_URLS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+  // keep demo last (least reliable)
+  'https://solana-mainnet.g.alchemy.com/v2/demo',
+];
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function useFarcaster() {
   const [user, setUser] = useState<FarcasterUser | null>(null);
-  const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // “Are we inside a Farcaster Mini App host (Warpcast etc.)?”
-  // We infer this from SDK + provider availability, not window.ethereum.
   const [isFarcasterClient, setIsFarcasterClient] = useState(false);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
 
-  // Keep a stable provider ref once we find it
-  const providerRef = useRef<Eip1193Provider | null>(null);
+  const supportsSolana = useMemo(
+    () => capabilities.includes('wallet.getSolanaProvider'),
+    [capabilities]
+  );
 
-  useEffect(() => {
-    initializeFarcaster();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [solAddress, setSolAddress] = useState<string | null>(null);
+  const [solBalance, setSolBalance] = useState<number | null>(null);
+  const [solBalanceLoading, setSolBalanceLoading] = useState(false);
+  const [solBalanceError, setSolBalanceError] = useState<string | null>(null);
 
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  const normalizeAddress = (addr: unknown) => {
-    if (typeof addr !== 'string') return null;
-    if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return null;
-    return addr;
-  };
-
-  const buildUserFromContext = (context: unknown): FarcasterUser | null => {
-    const ctx = context as { user?: unknown };
-    const ctxUser = ctx?.user as
-      | {
-          fid: number;
-          username?: string;
-          displayName?: string;
-          pfpUrl?: string;
-        }
-      | undefined;
-
+  const buildUserFromContext = (context: FarcasterMiniappContext | null): FarcasterUser | null => {
+    const ctxUser = context?.user;
     if (!ctxUser?.fid) return null;
 
     const farcasterUser: FarcasterUser = {
@@ -66,12 +90,9 @@ export function useFarcaster() {
       pfpUrl: ctxUser.pfpUrl,
     };
 
-    
-    const userAny = ctxUser as unknown as { custody?: unknown; verifications?: unknown };
-    if (typeof userAny.custody === 'string') farcasterUser.custody = userAny.custody;
-
-    if (Array.isArray(userAny.verifications)) {
-      farcasterUser.verifications = userAny.verifications.filter(
+    if (typeof ctxUser?.custody === 'string') farcasterUser.custody = ctxUser.custody;
+    if (Array.isArray(ctxUser?.verifications)) {
+      farcasterUser.verifications = ctxUser.verifications.filter(
         (v): v is string => typeof v === 'string'
       );
     }
@@ -79,190 +100,224 @@ export function useFarcaster() {
     return farcasterUser;
   };
 
-  const syncUserToBackend = async (farcasterUser: FarcasterUser) => {
+  const initializeFarcaster = useCallback(async () => {
     try {
-      let walletAddress = `fid_${farcasterUser.fid}`;
-      if (farcasterUser.verifications?.length) walletAddress = farcasterUser.verifications[0];
-      else if (farcasterUser.custody) walletAddress = farcasterUser.custody;
+      setIsLoading(true);
+      setError(null);
 
-      await fetch('/api/users/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fid: farcasterUser.fid,
-          username: farcasterUser.username,
-          walletAddress,
-        }),
-      });
-    } catch (err) {
-      console.error('Error syncing user:', err);
+      // ready can hang outside Warpcast — keep timeout
+      try {
+        await withTimeout(sdk.actions.ready(), 2500);
+      } catch {
+        // ignore
+      }
+
+      // fetch both context + capabilities (either can be the "signal")
+      let context: FarcasterMiniappContext | null = null;
+      try {
+        context = (await withTimeout(Promise.resolve(sdk.context), 2500)) as FarcasterMiniappContext;
+      } catch {
+        context = null;
+      }
+
+      let caps: string[] = [];
+      try {
+        const got = await withTimeout(sdk.getCapabilities(), 2500);
+        caps = Array.isArray(got) ? got : [];
+      } catch {
+        caps = [];
+      }
+      setCapabilities(caps);
+
+      const inMini =
+        Boolean(context?.user?.fid) || caps.includes('wallet.getSolanaProvider');
+      setIsFarcasterClient(inMini);
+
+      if (context) {
+        const u = buildUserFromContext(context);
+        if (u) setUser(u);
+      }
+    } catch {
+      setIsFarcasterClient(false);
+      setCapabilities([]);
+      setError('Failed to initialize Farcaster');
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, []);
 
-  const setUserFromContext = async (context: unknown) => {
-    const farcasterUser = buildUserFromContext(context);
-    if (!farcasterUser) return null;
-    setUser(farcasterUser);
-    await syncUserToBackend(farcasterUser);
-    return farcasterUser;
-  };
+  useEffect(() => {
+    void initializeFarcaster();
+  }, [initializeFarcaster]);
 
-  /**
-   * KEY CHANGE:
-   * - Don’t use window.farcasterEthereum / window.ethereum for detection.
-   * - Use SDK + sdk.wallet.getEthereumProvider() to detect miniapp + provider.
-   */
-  const getSdkProvider = async (): Promise<Eip1193Provider | null> => {
+  const getSolanaProvider = async (): Promise<SolanaProvider | null> => {
+    if (!supportsSolana) return null;
+
     try {
-      if (providerRef.current) return providerRef.current;
+      const sdkWithWallet = sdk as unknown as SdkWithSolanaWallet;
+      const getProvider = sdkWithWallet.wallet?.getSolanaProvider;
+      if (!getProvider) return null;
 
-      // Must be ready before calling wallet methods
-      await sdk.actions.ready();
+      const provider = (await getProvider()) as SolanaProvider | null;
+      if (!provider) return null;
 
-      // Prefer SDK wallet provider 
-      const prov = await sdk.wallet.getEthereumProvider().catch(() => null);
-      if (!prov) return null;
-
-      
-      const maybe = prov as unknown as { request?: unknown };
-      if (typeof maybe.request !== 'function') return null;
-
-      providerRef.current = prov as Eip1193Provider;
-      return providerRef.current;
+      // accept either connect/disconnect OR request-based providers
+      if (provider.connect || provider.request) return provider;
+      return null;
     } catch {
       return null;
     }
   };
 
-  // Provider might not be ready immediately on first open → retry
-  const waitForSdkProvider = async (opts?: { timeoutMs?: number; intervalMs?: number }) => {
-    const timeoutMs = opts?.timeoutMs ?? 4000;
-    const intervalMs = opts?.intervalMs ?? 200;
-    const started = Date.now();
-
-    while (Date.now() - started < timeoutMs) {
-      const p = await getSdkProvider();
-      if (p) return p;
-      await sleep(intervalMs);
+  const waitForSolAddress = async (provider: SolanaProvider, tries = 10) => {
+    for (let i = 0; i < tries; i++) {
+      const addr = provider.publicKey?.toBase58?.();
+      if (addr) return addr;
+      await sleep(120);
     }
     return null;
   };
 
-  const initializeFarcaster = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // This won’t crash in browser; if it does, we catch.
-      await sdk.actions.ready();
-
-      // Try reading context (may exist even before user)
-      const context = await sdk.context.catch?.(() => null) ?? (await sdk.context);
-
-      // If we can access context at all, we’re *likely* in a miniapp host
-      // But the strongest signal is wallet provider availability:
-      const provider = await getSdkProvider();
-      const inClient = !!provider || !!context;
-
-      setIsFarcasterClient(inClient);
-
-      if (context) {
-        await setUserFromContext(context);
-      }
-    } catch (err) {
-      console.error('Farcaster init error:', err);
-      setIsFarcasterClient(false);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const getWalletAddress = () => {
-    if (connectedAddress) return connectedAddress;
-    if (user?.verifications?.length) return user.verifications[0];
-    if (user?.custody) return user.custody;
-    return '';
-  };
-
-  /**
-   * KEY CHANGE:
-   * - Connect uses sdk.wallet.getEthereumProvider() with retry.
-   * - If provider not found => we throw “Open in Warpcast…”
-   * - No window.ethereum fallback here (since your requirement is: browser => show toast)
-   */
-  const connectWallet = async () => {
-    // Ensure we’re ready + we have some context if possible
+  const connectWallet = async (): Promise<string> => {
     await sdk.actions.ready();
 
-    // Try to refresh context/user quickly (helps on first load)
-    try {
-      const context = await sdk.context;
-      if (context) {
-        setIsFarcasterClient(true);
-        await setUserFromContext(context);
-      }
-    } catch {
-      // ignore
+    if (!isFarcasterClient) {
+      throw new Error('Open in Warpcast to connect your wallet.');
+    }
+    if (!supportsSolana) {
+      throw new Error('This host does not support Solana wallet connections.');
     }
 
-    // Get provider (retry for “provider not ready” race)
-    const provider = await waitForSdkProvider({ timeoutMs: 5000, intervalMs: 250 });
+    const provider = await getSolanaProvider();
     if (!provider) {
-      setIsFarcasterClient(false);
-      throw new Error('Open in Warpcast to connect your Farcaster wallet.');
+      throw new Error('Solana wallet provider not ready. Reopen the miniapp and try again.');
     }
 
-    // Request accounts
-    const accounts = await provider.request({ method: 'eth_requestAccounts' });
-    const first = Array.isArray(accounts) ? normalizeAddress(accounts[0]) : null;
+    // connect (both styles)
+    if (provider.connect) await provider.connect();
+    else if (provider.request) await provider.request({ method: 'connect' });
 
-    if (!first) {
-      throw new Error('No EVM account returned from wallet provider');
-    }
+    const addr = (await waitForSolAddress(provider)) ?? provider.publicKey?.toBase58?.();
+    if (!addr) throw new Error('No Solana public key returned from provider');
 
-    setConnectedAddress(first);
-
-    // Subscribe to account changes if supported
-    try {
-      if (typeof provider.on === 'function') {
-        const handler = (accs: unknown) => {
-          const next = Array.isArray(accs) ? normalizeAddress((accs as unknown[])[0]) : null;
-          setConnectedAddress(next);
-        };
-        provider.on('accountsChanged', handler);
-      }
-    } catch {
-      // ignore
-    }
-
-    return true;
+    setSolAddress(addr);
+    return addr;
   };
 
   const disconnectWallet = async () => {
-    // No standard disconnect in EIP-1193; clear local state
-    setConnectedAddress(null);
+    try {
+      const provider = await getSolanaProvider();
+      if (provider?.disconnect) await provider.disconnect();
+      else if (provider?.request) await provider.request({ method: 'disconnect' });
+    } catch {
+      // ignore
+    }
+    setSolAddress(null);
+    setSolBalance(null);
   };
 
+  const fetchSolBalance = useCallback(async (address: string) => {
+    for (const rpcUrl of SOL_RPC_URLS) {
+      try {
+        // per-RPC timeout so mobile doesn't hang forever
+        const res = await withTimeout(
+          fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getBalance',
+              params: [address],
+            }),
+            cache: 'no-store',
+          }),
+          3500
+        );
+
+        if (!res.ok) continue;
+
+        const json = await res.json().catch(() => null);
+        const lamports = json?.result?.value;
+        if (typeof lamports !== 'number') continue;
+
+        return { ok: true as const, sol: lamports / 1e9, rpcUrl };
+      } catch {
+        continue;
+      }
+    }
+    return { ok: false as const };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!solAddress) {
+      setSolBalance(null);
+      setSolBalanceError(null);
+      setSolBalanceLoading(false);
+      return;
+    }
+
+    const run = async () => {
+      try {
+        setSolBalanceLoading(true);
+        setSolBalanceError(null);
+
+        const out = await fetchSolBalance(solAddress);
+        if (cancelled) return;
+
+        if (!out.ok) {
+          setSolBalance(null);
+          setSolBalanceError('SOL balance unavailable (RPC failed)');
+          return;
+        }
+
+        setSolBalance(out.sol);
+      } catch (e) {
+        if (cancelled) return;
+        setSolBalance(null);
+        setSolBalanceError(e instanceof Error ? e.message : 'SOL balance unavailable');
+      } finally {
+        if (!cancelled) setSolBalanceLoading(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [solAddress, fetchSolBalance]);
+
   const logout = async () => {
-    setConnectedAddress(null);
+    setSolAddress(null);
+    setSolBalance(null);
     setUser(null);
     setError(null);
   };
 
-  const wallet = {
-    isConnected: !!connectedAddress,
-    address: getWalletAddress(),
-  };
-
   return {
     user,
-    walletAddress: getWalletAddress(),
+
     isLoading,
     error,
+
     isFarcasterClient,
+    supportsSolana,
+
+    walletAddress: solAddress ?? '',
+    solAddress,
+    solBalance,
+    solBalanceLoading,
+    solBalanceError,
+
     connectWallet,
     disconnectWallet,
     logout,
-    wallet,
+
+    wallet: {
+      isConnected: Boolean(solAddress),
+      address: solAddress ?? '',
+    },
   };
 }

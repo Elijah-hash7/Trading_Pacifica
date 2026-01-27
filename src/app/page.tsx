@@ -4,7 +4,7 @@ import { useFarcaster } from '@/hooks/useFarcaster';
 import { TrendingUp, TrendingDown, Send, ArrowLeftRight, Search, X, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useToast } from '@/components/ToastProvider';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Loading from './loading';
 import SlideToConfirm from '@/components/slide-to-confirm';
 
@@ -38,16 +38,9 @@ const tokenColors: Record<string, string> = {
 
 export default function HomePage() {
   const { user, wallet, walletAddress, isLoading, isFarcasterClient, connectWallet, disconnectWallet, logout } = useFarcaster();
-  const inFarcasterClient =
-    isFarcasterClient ||
-    (typeof window !== 'undefined' &&
-      (Boolean((window as unknown as { farcasterEthereum?: unknown }).farcasterEthereum) ||
-        Boolean((window as unknown as { farcaster?: unknown }).farcaster)));
+  const inFarcasterClient = isFarcasterClient;
   const { pushToast } = useToast();
   const [pairs, setPairs] = useState<Pair[]>([]);
-  const [walletBalanceEth, setWalletBalanceEth] = useState<number | null>(null);
-  const [walletBalanceLoading, setWalletBalanceLoading] = useState(false);
-  const [walletBalanceError, setWalletBalanceError] = useState<string | null>(null);
   const [connectWalletError, setConnectWalletError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSwap, setShowSwap] = useState(false);
@@ -74,22 +67,55 @@ export default function HomePage() {
   const [sendFeeLoading, setSendFeeLoading] = useState(false);
   const [sendFeeError, setSendFeeError] = useState<string | null>(null);
   const [connectingWallet, setConnectingWallet] = useState(false);
-  const searchParams = useSearchParams();
   const router = useRouter();
+  const {
+    solBalance,
+    solBalanceLoading,
+    solBalanceError
+  } = useFarcaster();
+
+  const getErrMessage = (err: unknown) => {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    if (err && typeof err === "object") {
+      // many wallet libs throw { message, code }
+      const anyErr = err as { message?: unknown };
+      if (typeof anyErr.message === "string") return anyErr.message;
+      try {
+        return JSON.stringify(err);
+      } catch {
+        return "Failed to connect wallet";
+      }
+    }
+    return "Failed to connect wallet";
+  };
 
   const handleConnectWallet = async () => {
     try {
       setConnectingWallet(true);
+      setConnectWalletError(null);
 
-      await connectWallet(); // throws if not in Warpcast
+      if (!inFarcasterClient) {
+        setConnectWalletError("Open in Warpcast to connect your Farcaster wallet.");
+        return;
+      }
 
+      if (wallet?.isConnected) {
+        await disconnectWallet();
+        pushToast("Disconnected.", { variant: "info" });
+        return;
+      }
+
+      await connectWallet();
+      pushToast("Wallet connected!", { variant: "success" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to connect wallet";
-
-      // browser / not in miniapp UX
-      pushToast(message.includes("Warpcast") ? "Open in Warpcast to connect wallet." : message, {
-        variant: "warning",
-      });
+      const message = getErrMessage(err);
+      if (/Warpcast|Farcaster|miniapp/i.test(message)) {
+        setConnectWalletError("Open in Warpcast to connect your Farcaster wallet.");
+        pushToast("Open in Warpcast to connect wallet.", { variant: "info" });
+      } else {
+        pushToast(message, { variant: "error" });
+      }
     } finally {
       setConnectingWallet(false);
     }
@@ -106,7 +132,7 @@ export default function HomePage() {
     queueMicrotask(() => {
       void fetchPairs();
     });
-  }, []);
+  }, [fetchPairs]);
 
   useEffect(() => {
     if (!connectWalletError) return;
@@ -218,7 +244,7 @@ export default function HomePage() {
     };
     run();
     return () => controller.abort();
-  }, [showSend, currentSendToken, sendTo, sendAmount]);
+  }, [showSend, currentSendToken, sendTo, sendAmount, walletAddress]);
   const loadCachedPairs = () => {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
@@ -239,46 +265,7 @@ export default function HomePage() {
     }
   };
 
-  useEffect(() => {
-    const addr = walletAddress;
-    if (!wallet?.isConnected || !addr || !addr.startsWith('0x')) {
-      setWalletBalanceEth(null);
-      setWalletBalanceError(null);
-      setWalletBalanceLoading(false);
-      return;
-    }
 
-    let cancelled = false;
-    const run = async () => {
-      try {
-        setWalletBalanceLoading(true);
-        setWalletBalanceError(null);
-
-        const res = await fetch(`/api/wallet/balance?address=${encodeURIComponent(addr)}`);
-        const json: { success?: boolean; eth?: number; error?: string; details?: string } = await res.json();
-        if (cancelled) return;
-
-        if (!res.ok || !json?.success || typeof json.eth !== 'number') {
-          setWalletBalanceEth(null);
-          setWalletBalanceError(json?.error || json?.details || 'Unable to load balance');
-          return;
-        }
-
-        setWalletBalanceEth(json.eth);
-      } catch (e) {
-        if (cancelled) return;
-        setWalletBalanceEth(null);
-        setWalletBalanceError('Unable to load balance');
-      } finally {
-        if (!cancelled) setWalletBalanceLoading(false);
-      }
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [wallet?.isConnected, walletAddress]);
 
   const fetchPairs = useCallback(async () => {
     try {
@@ -312,7 +299,7 @@ export default function HomePage() {
               return next;
             });
           })
-          .catch(err => console.error(`Error fetching price for ${pair.symbol}`));
+          .catch(() => console.error(`Error fetching price for ${pair.symbol}`));
       });
     } catch (err) {
       console.error('Error fetching pairs:', err);
@@ -376,9 +363,8 @@ export default function HomePage() {
     });
   }, [pairs, searchQuery]);
 
-  if (isLoading || loading) {
-    return <Loading />;
-  }
+  if (isLoading || loading) return <Loading />;
+
 
   const handleTokenPick = (pair: Pair) => {
     if (tokenPickerTarget === 'swapFrom') {
@@ -399,9 +385,9 @@ export default function HomePage() {
 
   const balanceLabel = () => {
     if (!wallet?.isConnected) return 'Connect wallet';
-    if (walletBalanceLoading) return 'Loading…';
-    if (walletBalanceError) return 'Balance unavailable';
-    if (typeof walletBalanceEth === 'number') return `${walletBalanceEth.toFixed(4)} ETH`;
+    if (solBalanceLoading) return 'Loading…';
+    if (solBalanceError) return 'Balance unavailable';
+    if (typeof solBalance === 'number') return `${solBalance.toFixed(4)} SOL`;
     return '—';
   };
 
@@ -487,7 +473,7 @@ export default function HomePage() {
               <span className="text-xs text-zinc-500">LIVE</span>
             </div>
             <div className="text-3xl font-bold tracking-tight mb-2">{balanceLabel()}</div>
-            {walletBalanceError && (
+            {solBalanceError && (
               <div className="mt-2 text-xs text-zinc-500">
                 {walletBalanceError}
               </div>
