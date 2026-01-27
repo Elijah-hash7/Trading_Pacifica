@@ -1,6 +1,6 @@
 // src/components/PositionsList.tsx
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, TrendingDown, X, RefreshCw, Share2 } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
 import { extractAddress } from '@/lib/extractAddress';
@@ -41,32 +41,12 @@ export default function PositionsList({ walletAddress }: PositionsListProps) {
   // Error state
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch positions when component mounts or wallet changes
-  useEffect(() => {
-    if (walletAddress) {
-      fetchPositions();
-    }
-  }, [walletAddress]);
-
-  // Set up polling: Refresh positions every 10 seconds
-  useEffect(() => {
-    if (!walletAddress) return;
-    
-    // Poll every 10 seconds to update PnL in real-time
-    const interval = setInterval(() => {
-      fetchPositions();
-    }, 10000);
-    
-    // Cleanup when component unmounts
-    return () => clearInterval(interval);
-  }, [walletAddress]);
-
   // Fetch open positions from your API
-  const fetchPositions = async () => {
+  const fetchPositions = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Call your GET /api/positions endpoint
       // This endpoint fetches from Pacifica and also checks your DB
       const accountString = extractAddress(walletAddress) ?? '';
@@ -77,23 +57,43 @@ export default function PositionsList({ walletAddress }: PositionsListProps) {
       }
 
       const response = await fetch(`/api/positions?account=${encodeURIComponent(accountString)}`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch positions');
       }
-      
+
       const data = await response.json();
-      
+
       // Update state with fetched positions
       setPositions(data.positions || []);
-      
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       console.error('Error fetching positions:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [walletAddress]);
+
+  // Fetch positions when component mounts or wallet changes
+  useEffect(() => {
+    if (walletAddress) {
+      void fetchPositions();
+    }
+  }, [walletAddress, fetchPositions]);
+
+  // Set up polling: Refresh positions every 10 seconds
+  useEffect(() => {
+    if (!walletAddress) return;
+    
+    // Poll every 10 seconds to update PnL in real-time
+    const interval = setInterval(() => {
+      void fetchPositions();
+    }, 10000);
+    
+    // Cleanup when component unmounts
+    return () => clearInterval(interval);
+  }, [walletAddress, fetchPositions]);
 
   // Close a position (sell if long, buy if short)
   const handleClosePosition = async (positionId: string) => {
@@ -120,8 +120,8 @@ export default function PositionsList({ walletAddress }: PositionsListProps) {
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to close position');
+        const errorData = (await response.json().catch(() => ({}))) as { error?: unknown };
+        throw new Error(typeof errorData?.error === 'string' ? errorData.error : 'Failed to close position');
       }
       
       const data = await response.json();

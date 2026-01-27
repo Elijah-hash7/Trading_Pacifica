@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronRight } from 'lucide-react';
 
 interface SlideToConfirmProps {
@@ -39,7 +39,7 @@ export default function SlideToConfirm({
     return () => window.removeEventListener('resize', update);
   }, []);
 
-  const handleStart = (clientX: number) => {
+  const handleStart = (_clientX: number) => {
     if (disabled || isComplete) return;
     setIsDragging(true);
   };
@@ -86,13 +86,13 @@ export default function SlideToConfirm({
     handleStart(e.clientX);
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
+  const handleMouseMove = useCallback((e: MouseEvent) => {
     handleMove(e.clientX);
-  };
+  }, [handleMove]);
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     handleEnd();
-  };
+  }, [handleEnd]);
 
   // Touch events
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -116,7 +116,7 @@ export default function SlideToConfirm({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, position]);
+  }, [isDragging, handleMouseMove, handleMouseUp]);
 
   const progress = position / trackWidth;
 

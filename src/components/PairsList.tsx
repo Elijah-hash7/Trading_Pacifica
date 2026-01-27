@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 
 interface Pair {
@@ -23,7 +23,7 @@ export default function PairsList({
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   
   // Fetch prices
-  async function fetchPrices() {
+  const fetchPrices = useCallback(async () => {
     try {
       // API route present in the project is GET /api/pairs which returns { success: true, pairs: [...] }
       const response = await fetch('/api/pairs');
@@ -70,7 +70,7 @@ export default function PairsList({
           if (!selectedPair && normalized.length > 0) {
             onSelectPair(normalized[0]);
           }
-        } catch (e) {
+        } catch {
           // ignore
         }
       } else {
@@ -82,14 +82,16 @@ export default function PairsList({
       console.error('Error fetching prices:', error);
       setLoading(false);
     }
-  }
+  }, [onSelectPair, selectedPair]);
   
   // Fetch on mount and every 10 seconds
   useEffect(() => {
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 10000);
+    void fetchPrices();
+    const interval = setInterval(() => {
+      void fetchPrices();
+    }, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchPrices]);
   
   if (loading) {
     return (

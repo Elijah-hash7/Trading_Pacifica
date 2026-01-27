@@ -1,7 +1,27 @@
 import { pacifica } from "@/lib/pacifica";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { verifyMessage } from "ethers";
+import nacl from "tweetnacl";
+import bs58 from "bs58";
+import { PublicKey } from "@solana/web3.js";
+
+
+// Ensure this runs on Node runtime (tweetnacl is fine there)
+export const runtime = "nodejs";
+
+function isValidSolAddress(addr: string) {
+    try {
+        new PublicKey(addr);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function base64ToBytes(b64: string) {
+    // Node-safe decode
+    return new Uint8Array(Buffer.from(b64, "base64"));
+}
 
 export async function POST(request: Request) {
     try {
@@ -12,42 +32,29 @@ export async function POST(request: Request) {
             account,
             signature,
             timeStamp,
-            symbol, 
-            amount, 
+            symbol,
+            amount,
             side,
             type = 'market',
-            tick_level,
-            builder_code
+            tick_level
         } = body;
 
 
 
         if (!account || !signature || !symbol || !amount || !side) {
-            return NextResponse.json(
-                {error: "Missing required fields"},
-                {status: 400}
-            );
+            return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
         if (!timeStamp) {
-            return NextResponse.json(
-                {error: "Missing timestamp"},
-                {status: 400}
-            );
+            return NextResponse.json({ error: "Missing timestamp" }, { status: 400 });
         }
 
-        if (!/^0x[a-fA-F0-9]{40}$/.test(account)) {
-            return NextResponse.json(
-                {error: "Invalid account address"},
-                {status: 400}
-            );
+        if (typeof account !== "string" || !isValidSolAddress(account)) {
+            return NextResponse.json({ error: "Invalid Solana account address" }, { status: 400 });
         }
 
-        if (!/^0x[a-fA-F0-9]{130}$/.test(signature)) {
-            return NextResponse.json(
-                {error: "Invalid signature format"},
-                {status: 400}
-            );
+        if (typeof signature !== "string" || signature.length < 20) {
+            return NextResponse.json({ error: "Invalid signature format" }, { status: 400 });
         }
 
         const signatureMessage = [
@@ -58,35 +65,40 @@ export async function POST(request: Request) {
             `side:${side}`,
             `type:${type}`,
             `timestamp:${timeStamp}`,
-            `tick:${tick_level ?? ''}`,
+            `tick:${tick_level ?? ""}`,
         ].join("\n");
 
         let signatureValid = false;
         try {
-            const recovered = verifyMessage(signatureMessage, signature);
-            signatureValid = recovered.toLowerCase() === account.toLowerCase();
+            const msgBytes = new TextEncoder().encode(signatureMessage);
+            const sigBytes = base64ToBytes(signature);
+            const pubKeyBytes = bs58.decode(account);
+
+            // tweetnacl expects 64-byte signatures
+            if (sigBytes.length !== 64) {
+                signatureValid = false;
+            } else {
+                signatureValid = nacl.sign.detached.verify(msgBytes, sigBytes, pubKeyBytes);
+            }
         } catch {
             signatureValid = false;
         }
+
         if (!signatureValid) {
-            console.warn('Signature verification failed; allowing order in relaxed mode', {
-                account,
-                symbol,
-                type
-            });
+            return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
         }
 
         const tradeSize = Number.parseFloat(amount);
         if (!Number.isFinite(tradeSize) || tradeSize <= 0) {
             return NextResponse.json(
-                {error: "Invalid trade size"},
-                {status: 400}
+                { error: "Invalid trade size" },
+                { status: 400 }
             );
         }
 
         // find or user create user in database
         let user = await prisma.user.findUnique({
-            where: { walletAddress: account}
+            where: { walletAddress: account }
         })
 
         // if user doesnt exist create a new one
@@ -94,7 +106,7 @@ export async function POST(request: Request) {
             user = await prisma.user.create({
                 data: {
                     fid: 0,
-                    username: account.slice(0,8),
+                    username: account.slice(0, 8),
                     walletAddress: account,
                     totalVolume: 0,
                     totalFees: 0
@@ -106,9 +118,6 @@ export async function POST(request: Request) {
 
         // calculate Fee
         const fee = tradeSize * 0.0004
-
-                
-
 
         // create order to track it
         const order = await prisma.order.create({
@@ -137,11 +146,11 @@ export async function POST(request: Request) {
                     data: { status: 'failed' }
                 });
                 return NextResponse.json(
-                    {error: 'Failed to place order with Pacifica'},
-                    {status: 500}
+                    { error: 'Failed to place order with Pacifica' },
+                    { status: 500 }
                 )
             }
-            
+
             // Run all writes together so order/trade/user stay in sync.
             await prisma.$transaction([
                 prisma.order.update({
@@ -168,10 +177,10 @@ export async function POST(request: Request) {
                     }
                 }),
                 prisma.user.update({
-                    where: {id: user.id},
+                    where: { id: user.id },
                     data: {
-                        totalVolume: {increment: tradeSize},
-                        totalFees: {increment: fee}
+                        totalVolume: { increment: tradeSize },
+                        totalFees: { increment: fee }
                     }
                 })
             ]);
@@ -187,8 +196,8 @@ export async function POST(request: Request) {
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
-            {error: 'Internal server error', details: message},
-            {status: 500}
+            { error: 'Internal server error', details: message },
+            { status: 500 }
         )
     }
 }

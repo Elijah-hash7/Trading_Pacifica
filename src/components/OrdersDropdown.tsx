@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ChevronUp, ChevronDown, Clock } from 'lucide-react';
 import { extractAddress } from '@/lib/extractAddress';
 
@@ -36,13 +36,7 @@ export default function OrdersDropdown({ walletAddress, isOpen, onToggle }: Orde
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && walletAddress) {
-      fetchData();
-    }
-  }, [isOpen, activeTab, walletAddress]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     const account = extractAddress(walletAddress);
     if (!account) return;
     setLoading(true);
@@ -62,7 +56,13 @@ export default function OrdersDropdown({ walletAddress, isOpen, onToggle }: Orde
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, walletAddress]);
+
+  useEffect(() => {
+    if (isOpen && walletAddress) {
+      void fetchData();
+    }
+  }, [isOpen, walletAddress, fetchData]);
 
   return (
     <div 

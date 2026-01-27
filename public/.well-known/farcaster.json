@@ -10,6 +10,6 @@
     "iconUrl": "https://trading-pacificast.vercel.app/icon.png",
     "homeUrl": "https://trading-pacificast.vercel.app",
     "buttonTitle": "Open in Warpcast",
-    "requiredCapabilities": ["wallet.getEthereumProvider"]
+    "requiredCapabilities": ["wallet.getSolanaProvider"]
   }
 }

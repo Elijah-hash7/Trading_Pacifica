@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Trophy, Medal, Award, DollarSign, BarChart3, RefreshCw } from 'lucide-react';
 
 interface LeaderboardEntry {
@@ -35,15 +35,7 @@ export default function LeaderboardPage() {
     rewardDistribution: { first: 0, second: 0, third: 0 },
   };
 
-  useEffect(() => {
-    fetchLeaderboard();
-    const interval = setInterval(() => {
-      fetchLeaderboard();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -66,7 +58,15 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fallbackFeePool]);
+
+  useEffect(() => {
+    void fetchLeaderboard();
+    const interval = setInterval(() => {
+      void fetchLeaderboard();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [fetchLeaderboard]);
 
   const formatCurrency = (value: number) => {
     return `$${value.toLocaleString(undefined, { 
