@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { sdk } from '@farcaster/miniapp-sdk';
-import { PublicKey } from '@solana/web3.js';
 
 interface FarcasterUser {
   fid: number;
@@ -58,7 +57,6 @@ const SOL_RPC_URLS = [
   // keep demo last (least reliable)
   'https://solana-mainnet.g.alchemy.com/v2/demo',
 ];
-const SOL_ADDRESS_KEY = 'pacificast.solAddress';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -126,7 +124,6 @@ export function useFarcaster() {
       try {
         const got = await withTimeout(sdk.getCapabilities(), 2500);
         caps = Array.isArray(got) ? got : [];
-        console.log('Farcaster capabilities:', caps);
       } catch {
         caps = [];
       }
@@ -139,16 +136,6 @@ export function useFarcaster() {
       if (context) {
         const u = buildUserFromContext(context);
         if (u) setUser(u);
-      }
-
-      // Restore cached address (keeps connection across pages)
-      try {
-        const cached = localStorage.getItem(SOL_ADDRESS_KEY);
-        if (cached) {
-          setSolAddress(cached);
-        }
-      } catch {
-        // ignore
       }
     } catch {
       setIsFarcasterClient(false);
@@ -212,14 +199,8 @@ export function useFarcaster() {
 
     const addr = (await waitForSolAddress(provider)) ?? provider.publicKey?.toBase58?.();
     if (!addr) throw new Error('No Solana public key returned from provider');
-    if (addr.startsWith('0x')) throw new Error('Detected EVM address. Solana wallet required.');
 
     setSolAddress(addr);
-    try {
-      localStorage.setItem(SOL_ADDRESS_KEY, addr);
-    } catch {
-      // ignore
-    }
     return addr;
   };
 
@@ -233,20 +214,9 @@ export function useFarcaster() {
     }
     setSolAddress(null);
     setSolBalance(null);
-    try {
-      localStorage.removeItem(SOL_ADDRESS_KEY);
-    } catch {
-      // ignore
-    }
   };
 
-
   const fetchSolBalance = useCallback(async (address: string) => {
-    try {
-      new PublicKey(address);
-    } catch {
-      return { ok: false as const };
-    }
     for (const rpcUrl of SOL_RPC_URLS) {
       try {
         // per-RPC timeout so mobile doesn't hang forever
@@ -318,30 +288,6 @@ export function useFarcaster() {
       cancelled = true;
     };
   }, [solAddress, fetchSolBalance]);
-
-  // Auto-hydrate address from provider without forcing connect
-  useEffect(() => {
-    let cancelled = false;
-    if (!supportsSolana) return;
-
-    const run = async () => {
-      const provider = await getSolanaProvider();
-      const addr = provider?.publicKey?.toBase58?.();
-      if (!addr || cancelled) return;
-      if (addr.startsWith('0x')) return;
-      setSolAddress(addr);
-      try {
-        localStorage.setItem(SOL_ADDRESS_KEY, addr);
-      } catch {
-        // ignore
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [supportsSolana]);
 
   const logout = async () => {
     setSolAddress(null);

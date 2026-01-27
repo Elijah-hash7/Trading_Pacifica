@@ -161,14 +161,25 @@ export default function HomePage() {
       } else {
         pushToast(message, { variant: "error" });
       }
+      setConnectWalletError(null);
+
+      if (!inFarcasterClient) {
+        setConnectWalletError("Open in Warpcast to connect your Farcaster wallet.");
+        return;
+      }
+
+      if (wallet?.isConnected) {
+        await disconnectWallet();
+        pushToast("Disconnected.", { variant: "info" });
+        return;
+      }
+
+      await connectWallet();
+      pushToast("Wallet connected!", { variant: "success" });
     } finally {
       setConnectingWallet(false);
     }
   };
-
-
-
-
 
 
 
@@ -376,6 +387,8 @@ export default function HomePage() {
 
   if (isLoading || loading) return <Loading />;
 
+  if (isLoading || loading) return <Loading />;
+
 
   const handleTokenPick = (pair: Pair) => {
     if (tokenPickerTarget === 'swapFrom') {
@@ -399,6 +412,7 @@ export default function HomePage() {
     if (solBalanceLoading) return 'Loading…';
     if (solBalanceError) return 'Balance unavailable';
     if (typeof solBalance === 'number') return `${solBalance.toFixed(4)} SOL`;
+    if (solBalanceLoading) return 'Loading…';
     return '—';
   };
 
@@ -480,6 +494,12 @@ export default function HomePage() {
         <div className="px-5 py-3">
           <div className="bg-zinc-900/80 rounded-2xl p-6 border border-zinc-800/50">
             <div className="flex justify-between items-start mb-1">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-zinc-500 uppercase tracking-wider">Wallet Balance</span>
+                <span className="text-[10px] uppercase tracking-[0.22em] text-emerald-400/80">
+                  Solana
+                </span>
+              </div>
               <div className="flex flex-col gap-1">
                 <span className="text-xs text-zinc-500 uppercase tracking-wider">Wallet Balance</span>
                 <span className="text-[10px] uppercase tracking-[0.22em] text-emerald-400/80">
