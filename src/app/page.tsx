@@ -166,50 +166,7 @@ export default function HomePage() {
     }
   };
 
-  const fetchPairs = useCallback(async () => {
-    let timeoutId: number | undefined;
-    const controller = new AbortController();
-    try {
-      timeoutId = window.setTimeout(() => controller.abort(), 8000);
-      const response = await fetch('/api/pairs', { signal: controller.signal });
-      const data = await response.json();
-      const pairsWithPrices = data.pairs || [];
 
-      const cachedPairs = loadCachedPairs();
-      const cachedBySymbol = new Map(
-        (cachedPairs || []).map((pair) => [pair.symbol, pair])
-      );
-
-      const stablePairs = pairsWithPrices.map((p: Pair) => ({
-        ...p,
-        price: cachedBySymbol.get(p.symbol)?.price ?? 0,
-        priceChange: cachedBySymbol.get(p.symbol)?.priceChange ?? 0
-      }));
-      setPairs(stablePairs);
-      saveCachedPairs(stablePairs);
-      setLoading(false);
-
-      stablePairs.forEach((pair: Pair, index: number) => {
-        fetch(`/api/pairs/${pair.symbol}/price`)
-          .then(res => res.json())
-          .then(priceData => {
-            setPairs(prev => {
-              const next = prev.map((p, i) =>
-                i === index ? { ...p, price: priceData.price } : p
-              );
-              saveCachedPairs(next);
-              return next;
-            });
-          })
-          .catch(() => console.error(`Error fetching price for ${pair.symbol}`));
-      });
-    } catch (err) {
-      console.error('Error fetching pairs:', err);
-      setLoading(false);
-    } finally {
-      if (timeoutId) window.clearTimeout(timeoutId);
-    }
-  }, []);
 
 
 
