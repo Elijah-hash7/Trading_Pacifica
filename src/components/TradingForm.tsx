@@ -1,14 +1,11 @@
 'use client';
 
-import React from "react"
-
-import { useState } from 'react';
+import React, { useState } from "react";
 import { ArrowUpCircle, ArrowDownCircle, Info, X, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
-import { PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 
-interface OrderPreview {
+type OrderPreview = {
   estPrice: number;
   estFee: number;
   maxSlippage: number;
@@ -16,6 +13,18 @@ interface OrderPreview {
   estLiqPrice: number;
   marginUsage: number;
   accountLeverage: number;
+};
+
+function isSolanaAddress(addr: string) {
+  // basic base58 check (final validation happens on server with PublicKey)
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
+}
+
+function toBase64(bytes: Uint8Array) {
+  // browser-safe base64
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
 }
 
 export default function TradingForm({
@@ -23,9 +32,11 @@ export default function TradingForm({
   walletAddress
 }: {
   selectedPair: { symbol?: string; mark?: string } | null;
-  walletAddress: string;
+  walletAddress: string; // should be Solana base58 now
 }) {
   const { pushToast } = useToast();
+  const { publicKey, signMessage } = useWallet();
+
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [side, setSide] = useState<'long' | 'short'>('long');
   const [size, setSize] = useState<string>('');
@@ -42,39 +53,19 @@ export default function TradingForm({
     estPrice: orderType === 'limit' && limitPrice ? parseFloat(limitPrice) : currentPrice,
     estFee: feeAmount,
     maxSlippage: 1.0,
-    position: `${(sizeNum / currentPrice).toFixed(6)} ${selectedPair?.symbol || 'ETH'}-PERP`,
-    estLiqPrice: side === 'long'
-      ? currentPrice * (1 - 1 / leverage * 0.9)
-      : currentPrice * (1 + 1 / leverage * 0.9),
+    position: `${(sizeNum / Math.max(currentPrice, 1)).toFixed(6)} ${selectedPair?.symbol || 'TOKEN'}-PERP`,
+    estLiqPrice:
+      side === 'long'
+        ? currentPrice * (1 - (1 / leverage) * 0.9)
+        : currentPrice * (1 + (1 / leverage) * 0.9),
     marginUsage: sizeNum > 0 ? (sizeNum / leverage / 1000 * 100) : 0,
     accountLeverage: leverage,
   };
 
-  const isValidSolAddress = (addr: string) => {
-    try {
-      new PublicKey(addr);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const toBase64 = (bytes: Uint8Array) => {
-    // browser-safe base64
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
-  };
-
-  const { publicKey, signMessage } = useWallet();
-
   const signSolanaMessage = async (message: string) => {
-    if (!publicKey) {
-      throw new Error('Wallet not connected');
-    }
-    if (!signMessage) {
-      throw new Error('Wallet does not support message signing');
-    }
+    if (!publicKey) throw new Error('Solana wallet not connected');
+    if (!signMessage) throw new Error('Wallet does not support signMessage');
+
     const encoded = new TextEncoder().encode(message);
     const sigBytes = await signMessage(encoded); // Uint8Array
     return toBase64(sigBytes);
@@ -88,11 +79,8 @@ export default function TradingForm({
       return;
     }
 
-    // Use publicKey as source of truth
-    const account = publicKey?.toBase58() || walletAddress;
-
-    if (!account || !isValidSolAddress(account)) {
-      pushToast('Connect a Solana wallet in Warpcast to place orders', { variant: 'warning' });
+    if (!walletAddress || !isSolanaAddress(walletAddress)) {
+      pushToast('Connect a Solana wallet to place orders', { variant: 'warning' });
       return;
     }
 
@@ -112,7 +100,7 @@ export default function TradingForm({
       const timeStamp = new Date().toISOString();
 
       const payload = {
-        account, // solana base58
+        account: walletAddress, // Solana base58
         symbol: selectedPair.symbol,
         amount: size,
         side: side === 'long' ? 'bid' : 'ask',
@@ -133,13 +121,16 @@ export default function TradingForm({
         `tick:${payload.tick_level ?? ''}`,
       ].join('\n');
 
-      
       const signature = await signSolanaMessage(signatureMessage);
 
       const response = await fetch('/api/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, signature }),
+        body: JSON.stringify({
+          ...payload,
+          signature,
+          signatureEncoding: 'base64',
+        }),
       });
 
       if (!response.ok) {

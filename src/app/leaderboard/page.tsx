@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Trophy, Medal, Award, DollarSign, BarChart3, RefreshCw } from 'lucide-react';
 
 interface LeaderboardEntry {
@@ -17,11 +17,7 @@ interface LeaderboardEntry {
 interface FeePool {
   totalFeesCollected: number;
   feePool: number;
-  rewardDistribution: {
-    first: number;
-    second: number;
-    third: number;
-  };
+  rewardDistribution: { first: number; second: number; third: number };
 }
 
 export default function LeaderboardPage() {
@@ -29,6 +25,10 @@ export default function LeaderboardPage() {
   const [feePool, setFeePool] = useState<FeePool | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const inFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
   const fallbackFeePool: FeePool = {
     totalFeesCollected: 0,
     feePool: 0,
@@ -36,44 +36,71 @@ export default function LeaderboardPage() {
   };
 
   const fetchLeaderboard = useCallback(async () => {
+    // prevent overlap
+    if (inFlightRef.current) return;
+
+    // abort any previous request (extra safety)
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    inFlightRef.current = true;
+
+    let timeoutId: number | undefined;
+
     try {
       setLoading(true);
       setError(null);
-      
-      const response = await fetch('/api/leaderboard');
-      
+
+      timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
+      const response = await fetch('/api/leaderboard', {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+
       if (!response.ok) {
-        throw new Error('Failed to fetch leaderboard');
+        // read error payload if any
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || 'Failed to fetch leaderboard');
       }
-      
+
       const data = await response.json();
-      setLeaderboard(data.leaderboard || []);
-      setFeePool(data.feePool || null);
-      
+      setLeaderboard(Array.isArray(data?.leaderboard) ? data.leaderboard : []);
+      setFeePool(data?.feePool ?? null);
     } catch (err) {
-      setError('Leaderboard is updating. Please check back soon.');
+      // if aborted, show a nicer message
+      const msg =
+        err instanceof Error && err.name === 'AbortError'
+          ? 'Leaderboard request timed out. Tap refresh.'
+          : 'Leaderboard is updating. Please check back soon.';
+
+      setError(msg);
       setLeaderboard([]);
       setFeePool(fallbackFeePool);
       console.error('Error fetching leaderboard:', err);
     } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      inFlightRef.current = false;
       setLoading(false);
     }
-  }, [fallbackFeePool]);
+  }, []);
 
   useEffect(() => {
     void fetchLeaderboard();
-    const interval = setInterval(() => {
+
+    const interval = window.setInterval(() => {
       void fetchLeaderboard();
     }, 30000);
-    return () => clearInterval(interval);
+
+    return () => {
+      window.clearInterval(interval);
+      abortRef.current?.abort();
+    };
   }, [fetchLeaderboard]);
 
-  const formatCurrency = (value: number) => {
-    return `$${value.toLocaleString(undefined, { 
-      minimumFractionDigits: 2, 
-      maximumFractionDigits: 2 
-    })}`;
-  };
+  const formatCurrency = (value: number) =>
+    `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const getRankIcon = (rank: number) => {
     if (rank === 1) return <Trophy className="w-5 h-5 text-yellow-400" />;
@@ -107,7 +134,6 @@ export default function LeaderboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white pb-20">
-      {/* Header */}
       <header className="px-4 py-4 border-b border-zinc-800/50">
         <div className="flex items-center gap-2">
           <Trophy className="w-5 h-5 text-yellow-400" />
@@ -117,68 +143,38 @@ export default function LeaderboardPage() {
       </header>
 
       <div className="p-4 space-y-4">
-        {/* Fee Pool Card */}
-        {(feePool || fallbackFeePool) && (
-          <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-2xl p-5 border border-zinc-800/50">
-            <h2 className="text-base font-semibold mb-4 flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-emerald-400" />
-              Fee Pool & Rewards
-            </h2>
-            
-            {/* Stats Grid */}
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <div className="bg-zinc-800/50 rounded-xl p-3">
-                <div className="text-xs text-zinc-500 mb-0.5">Fees</div>
-                <div className="text-base font-bold text-white">
-                  {formatCurrency((feePool || fallbackFeePool).totalFeesCollected)}
-                </div>
-              </div>
-              <div className="bg-zinc-800/50 rounded-xl p-3">
-                <div className="text-xs text-zinc-500 mb-0.5">Rewards</div>
-                <div className="text-base font-bold text-emerald-400">
-                  {formatCurrency((feePool || fallbackFeePool).feePool)}
-                </div>
-              </div>
-              <div className="bg-zinc-800/50 rounded-xl p-3">
-                <div className="text-xs text-zinc-500 mb-0.5">Traders</div>
-                <div className="text-base font-bold text-white">
-                  {leaderboard.length}
-                </div>
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-2xl p-5 border border-zinc-800/50">
+          <h2 className="text-base font-semibold mb-4 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-emerald-400" />
+            Fee Pool & Rewards
+          </h2>
+
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="bg-zinc-800/50 rounded-xl p-3">
+              <div className="text-xs text-zinc-500 mb-0.5">Fees</div>
+              <div className="text-base font-bold text-white">
+                {formatCurrency((feePool ?? fallbackFeePool).totalFeesCollected)}
               </div>
             </div>
-
-            {/* Top 3 Distribution */}
-            <div className="bg-zinc-800/30 rounded-xl p-4">
-              <div className="text-xs text-zinc-500 mb-3">Top 3 Rewards Distribution</div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center">
-                  <div className="text-yellow-400 text-xs font-semibold mb-1">1st Place</div>
-                  <div className="text-white font-semibold text-sm">{formatCurrency((feePool || fallbackFeePool).rewardDistribution.first)}</div>
-                  <div className="text-zinc-600 text-xs">50%</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-zinc-300 text-xs font-semibold mb-1">2nd Place</div>
-                  <div className="text-white font-semibold text-sm">{formatCurrency((feePool || fallbackFeePool).rewardDistribution.second)}</div>
-                  <div className="text-zinc-600 text-xs">30%</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-orange-400 text-xs font-semibold mb-1">3rd Place</div>
-                  <div className="text-white font-semibold text-sm">{formatCurrency((feePool || fallbackFeePool).rewardDistribution.third)}</div>
-                  <div className="text-zinc-600 text-xs">20%</div>
-                </div>
+            <div className="bg-zinc-800/50 rounded-xl p-3">
+              <div className="text-xs text-zinc-500 mb-0.5">Rewards</div>
+              <div className="text-base font-bold text-emerald-400">
+                {formatCurrency((feePool ?? fallbackFeePool).feePool)}
               </div>
+            </div>
+            <div className="bg-zinc-800/50 rounded-xl p-3">
+              <div className="text-xs text-zinc-500 mb-0.5">Traders</div>
+              <div className="text-base font-bold text-white">{leaderboard.length}</div>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Error Message */}
         {error && (
           <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4">
             <p className="text-zinc-400 text-sm">{error}</p>
           </div>
         )}
 
-        {/* Rankings Card */}
         <div className="bg-zinc-950 rounded-2xl border border-zinc-800/50 overflow-hidden">
           <div className="flex justify-between items-center px-4 py-3 border-b border-zinc-800/50">
             <h2 className="text-base font-semibold flex items-center gap-2">
@@ -186,7 +182,7 @@ export default function LeaderboardPage() {
               Rankings
             </h2>
             <button
-              onClick={fetchLeaderboard}
+              onClick={() => void fetchLeaderboard()}
               disabled={loading}
               className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50 flex items-center gap-1"
             >
@@ -195,31 +191,23 @@ export default function LeaderboardPage() {
             </button>
           </div>
 
-          {/* Empty State */}
           {leaderboard.length === 0 && !loading ? (
             <div className="text-center py-16 px-4">
               <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center mx-auto mb-4">
                 <Trophy className="w-8 h-8 text-zinc-600" />
               </div>
               <p className="text-zinc-400 font-medium">No traders yet</p>
-              <p className="text-zinc-600 text-sm mt-1">
-                Start trading to appear on the leaderboard!
-              </p>
+              <p className="text-zinc-600 text-sm mt-1">Start trading to appear on the leaderboard!</p>
             </div>
           ) : (
             <div className="divide-y divide-zinc-800/50">
               {leaderboard.map((entry) => (
-                <div
-                  key={entry.walletAddress}
-                  className={`p-4 ${entry.rank <= 3 ? getRankStyle(entry.rank) : ''}`}
-                >
+                <div key={entry.walletAddress} className={`p-4 ${entry.rank <= 3 ? getRankStyle(entry.rank) : ''}`}>
                   <div className="flex items-center gap-3">
-                    {/* Rank */}
                     <div className="w-8 h-8 rounded-full bg-zinc-800/50 flex items-center justify-center flex-shrink-0">
                       {getRankIcon(entry.rank)}
                     </div>
 
-                    {/* User Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-white truncate">{entry.username}</span>
@@ -234,14 +222,9 @@ export default function LeaderboardPage() {
                       </div>
                     </div>
 
-                    {/* Stats */}
                     <div className="text-right flex-shrink-0">
-                      <div className="text-sm font-semibold text-emerald-400">
-                        {formatCurrency(entry.totalVolume)}
-                      </div>
-                      <div className="text-xs text-zinc-500">
-                        {entry.tradeCount} trades
-                      </div>
+                      <div className="text-sm font-semibold text-emerald-400">{formatCurrency(entry.totalVolume)}</div>
+                      <div className="text-xs text-zinc-500">{entry.tradeCount} trades</div>
                     </div>
                   </div>
                 </div>
@@ -250,7 +233,6 @@ export default function LeaderboardPage() {
           )}
         </div>
       </div>
-
     </div>
   );
 }

@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@farcaster/mini-app-solana": "^1.1.2",
     "@farcaster/miniapp-sdk": "^0.2.1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^6.0.0",
