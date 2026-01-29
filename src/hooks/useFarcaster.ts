@@ -33,7 +33,7 @@ type SdkWithSolanaWallet = typeof sdk & {
 
 type SolanaProvider = {
   publicKey?: { toBase58: () => string };
-  connect?: () => Promise<void>;
+  connect?: () => Promise<unknown>;
   disconnect?: () => Promise<void>;
   request?: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
 };
@@ -178,6 +178,46 @@ export function useFarcaster() {
     return null;
   };
 
+  const extractSolAddress = (value: unknown): string | null => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        const out = extractSolAddress(v);
+        if (out) return out;
+      }
+      return null;
+    }
+
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+
+      const pk = obj.publicKey;
+      if (typeof pk === 'string') return pk;
+      if (pk && typeof pk === 'object') {
+        const maybeToBase58 = (pk as { toBase58?: unknown }).toBase58;
+        if (typeof maybeToBase58 === 'function') {
+          try {
+            const addr = (pk as { toBase58: () => string }).toBase58();
+            if (typeof addr === 'string') return addr;
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const addr = obj.address;
+      if (typeof addr === 'string') return addr;
+
+      const accounts = obj.accounts;
+      if (typeof accounts === 'string') return accounts;
+      if (Array.isArray(accounts) && typeof accounts[0] === 'string') return accounts[0];
+    }
+
+    return null;
+  };
+
   const connectWallet = async (): Promise<string> => {
     await sdk.actions.ready();
 
@@ -194,11 +234,14 @@ export function useFarcaster() {
     }
 
     // connect (both styles)
-    if (provider.connect) await provider.connect();
-    else if (provider.request) await provider.request({ method: 'connect' });
+    let connectResult: unknown = null;
+    if (provider.connect) connectResult = await provider.connect();
+    else if (provider.request) connectResult = await provider.request({ method: 'connect' });
 
     const addr =
-      (await waitForSolAddress(provider, 20)) ?? provider.publicKey?.toBase58?.();
+      extractSolAddress(connectResult) ??
+      (await waitForSolAddress(provider, 30)) ??
+      provider.publicKey?.toBase58?.();
     if (!addr) throw new Error('No Solana public key returned from provider');
     if (addr.startsWith('0x')) throw new Error('Detected EVM address. Solana wallet required.');
 
