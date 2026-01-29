@@ -22,10 +22,16 @@ function isSolanaAddress(addr: string) {
 
 export default function TradingForm({
   selectedPair,
-  walletAddress
+  walletAddress,
+  solBalance,
+  solBalanceLoading,
+  solBalanceError
 }: {
   selectedPair: { symbol?: string; mark?: string } | null;
   walletAddress: string; // should be Solana base58 now
+  solBalance: number | null;
+  solBalanceLoading?: boolean;
+  solBalanceError?: string | null;
 }) {
   const { pushToast } = useToast();
   const { signSolanaMessage } = useFarcaster();
@@ -65,6 +71,26 @@ export default function TradingForm({
 
     if (!walletAddress || !isSolanaAddress(walletAddress)) {
       pushToast('Connect a Solana wallet to place orders', { variant: 'warning' });
+      return;
+    }
+
+    if (solBalanceLoading) {
+      pushToast('Balance is still loading. Please wait a moment.', { variant: 'info' });
+      return;
+    }
+
+    if (solBalance === null) {
+      pushToast('Balance unavailable. Please try again.', { variant: 'warning' });
+      return;
+    }
+
+    if (solBalanceError) {
+      pushToast('Balance unavailable. Please retry shortly.', { variant: 'warning' });
+      return;
+    }
+
+    if (solBalance <= 0) {
+      pushToast('Insufficient SOL balance to place order', { variant: 'warning' });
       return;
     }
 

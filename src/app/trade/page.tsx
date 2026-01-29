@@ -52,7 +52,7 @@ export default function TradePage() {
   const [selectedPair, setSelectedPair] = useState<TradingPair | null>(null);
   const [viewMode, setViewMode] = useState<'chart' | 'orderbook'>('chart');
   const [showPairSelector, setShowPairSelector] = useState(false);
-  const { walletAddress } = useFarcaster();
+  const { walletAddress, solBalance, solBalanceLoading, solBalanceError } = useFarcaster();
   const [ordersOpen, setOrdersOpen] = useState(false);
 
   const fetchPairs = useCallback(async () => {
@@ -130,6 +130,9 @@ export default function TradePage() {
         <TradingForm
           selectedPair={selectedPair}
           walletAddress={walletAddress}
+          solBalance={solBalance}
+          solBalanceLoading={solBalanceLoading}
+          solBalanceError={solBalanceError}
         />
       </div>
 

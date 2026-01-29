@@ -38,7 +38,19 @@ const tokenColors: Record<string, string> = {
 };
 
 export default function HomePage() {
-  const { user, wallet, walletAddress, isLoading, isFarcasterClient, connectWallet, disconnectWallet, logout } = useFarcaster();
+  const {
+    user,
+    wallet,
+    walletAddress,
+    isLoading,
+    isFarcasterClient,
+    connectWallet,
+    disconnectWallet,
+    logout,
+    solBalance,
+    solBalanceLoading,
+    solBalanceError
+  } = useFarcaster();
   const inFarcasterClient = isFarcasterClient;
   const { pushToast } = useToast();
   const [pairs, setPairs] = useState<Pair[]>([]);
@@ -69,11 +81,8 @@ export default function HomePage() {
   const [sendFeeError, setSendFeeError] = useState<string | null>(null);
   const [connectingWallet, setConnectingWallet] = useState(false);
   const router = useRouter();
-  const {
-    solBalance,
-    solBalanceLoading,
-    solBalanceError
-  } = useFarcaster();
+
+
 
   useEffect(() => {
     void sdk.actions.ready();
@@ -411,6 +420,7 @@ export default function HomePage() {
     // 1. Not connected
     if (!wallet?.isConnected) {
       return 'Connect wallet';
+      
     }
 
     if (solBalanceError) {
