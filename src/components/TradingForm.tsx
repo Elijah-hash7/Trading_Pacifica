@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ArrowUpCircle, ArrowDownCircle, Info, X, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useFarcaster } from '@/hooks/useFarcaster';
 
 type OrderPreview = {
   estPrice: number;
@@ -20,13 +20,6 @@ function isSolanaAddress(addr: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
 }
 
-function toBase64(bytes: Uint8Array) {
-  // browser-safe base64
-  let binary = '';
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  return btoa(binary);
-}
-
 export default function TradingForm({
   selectedPair,
   walletAddress
@@ -35,7 +28,7 @@ export default function TradingForm({
   walletAddress: string; // should be Solana base58 now
 }) {
   const { pushToast } = useToast();
-  const { publicKey, signMessage } = useWallet();
+  const { signSolanaMessage } = useFarcaster();
 
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [side, setSide] = useState<'long' | 'short'>('long');
@@ -60,15 +53,6 @@ export default function TradingForm({
         : currentPrice * (1 + (1 / leverage) * 0.9),
     marginUsage: sizeNum > 0 ? (sizeNum / leverage / 1000 * 100) : 0,
     accountLeverage: leverage,
-  };
-
-  const signSolanaMessage = async (message: string) => {
-    if (!publicKey) throw new Error('Solana wallet not connected');
-    if (!signMessage) throw new Error('Wallet does not support signMessage');
-
-    const encoded = new TextEncoder().encode(message);
-    const sigBytes = await signMessage(encoded); // Uint8Array
-    return toBase64(sigBytes);
   };
 
   async function handleSubmit(e?: React.FormEvent) {

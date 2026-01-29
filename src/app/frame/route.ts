@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     <meta name="fc:frame:version" content="1" />
     <meta name="fc:frame:name" content="Pacificast" />
     <meta name="fc:frame:icon" content="${origin}/icon.png" />
-    <meta name="fc:frame:homeUrl" content="${origin}" />
+    <meta name="fc:frame:homeUrl" content="${origin}/Home" />
     <meta name="fc:frame:buttonTitle" content="Open Pacificast" />
     <style>
       * {
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
       </div>
       <h1>Welcome to Pacificast!</h1>
       <p>Click the button to connect your wallet and start using the dapp.</p>
-      <a class="cta" href="${origin}">Open Pacificast</a>
+      <a class="cta" href="${origin}/Home">Open Pacificast</a>
     </div>
   </body>
 </html>`;

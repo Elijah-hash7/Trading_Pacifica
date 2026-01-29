@@ -60,6 +60,14 @@ const SOL_RPC_URLS = [
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const SOL_ADDRESS_STORAGE_KEY = 'pacificast_sol_address';
+
+function toBase64(bytes: Uint8Array) {
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+}
+
 export function useFarcaster() {
   const [user, setUser] = useState<FarcasterUser | null>(null);
 
@@ -78,6 +86,24 @@ export function useFarcaster() {
   const [solBalance, setSolBalance] = useState<number | null>(null);
   const [solBalanceLoading, setSolBalanceLoading] = useState(false);
   const [solBalanceError, setSolBalanceError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const cached = window.localStorage.getItem(SOL_ADDRESS_STORAGE_KEY);
+      if (cached) setSolAddress(cached);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (solAddress) window.localStorage.setItem(SOL_ADDRESS_STORAGE_KEY, solAddress);
+      else window.localStorage.removeItem(SOL_ADDRESS_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, [solAddress]);
 
   const buildUserFromContext = (context: FarcasterMiniappContext | null): FarcasterUser | null => {
     const ctxUser = context?.user;
@@ -150,7 +176,7 @@ export function useFarcaster() {
     void initializeFarcaster();
   }, [initializeFarcaster]);
 
-  const getSolanaProvider = async (): Promise<SolanaProvider | null> => {
+  const getSolanaProvider = useCallback(async (): Promise<SolanaProvider | null> => {
     if (!supportsSolana) return null;
 
     try {
@@ -167,7 +193,29 @@ export function useFarcaster() {
     } catch {
       return null;
     }
-  };
+  }, [supportsSolana]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateFromProvider = async () => {
+      if (!isFarcasterClient || !supportsSolana) return;
+      if (solAddress) return;
+
+      const provider = await getSolanaProvider();
+      if (!provider) return;
+
+      const addr = provider.publicKey?.toBase58?.();
+      if (!addr || addr.startsWith('0x')) return;
+
+      if (!cancelled) setSolAddress(addr);
+    };
+
+    void hydrateFromProvider();
+    return () => {
+      cancelled = true;
+    };
+  }, [getSolanaProvider, isFarcasterClient, solAddress, supportsSolana]);
 
   const waitForSolAddress = async (provider: SolanaProvider, tries = 10) => {
     for (let i = 0; i < tries; i++) {
@@ -177,6 +225,68 @@ export function useFarcaster() {
     }
     return null;
   };
+
+  const extractSignatureBase64 = (value: unknown): string | null => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+
+    if (value instanceof Uint8Array) return toBase64(value);
+
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        const out = extractSignatureBase64(v);
+        if (out) return out;
+      }
+      return null;
+    }
+
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+
+      const sig = obj.signature;
+      if (typeof sig === 'string') return sig;
+      if (sig instanceof Uint8Array) return toBase64(sig);
+
+      const data = obj.data;
+      if (typeof data === 'string') return data;
+      if (data instanceof Uint8Array) return toBase64(data);
+
+      const result = obj.result;
+      const nested = extractSignatureBase64(result);
+      if (nested) return nested;
+    }
+
+    return null;
+  };
+
+  const signSolanaMessage = useCallback(
+    async (message: string): Promise<string> => {
+      if (!isFarcasterClient) throw new Error('Open in Warpcast to sign.');
+      if (!supportsSolana) throw new Error('Solana signing not supported by host.');
+
+      const provider = await getSolanaProvider();
+      if (!provider?.request) throw new Error('Solana provider does not support signing.');
+
+      let result: unknown;
+      try {
+        result = await provider.request({
+          method: 'signMessage',
+          params: { message },
+        });
+      } catch {
+        // Some providers expect array params
+        result = await provider.request({
+          method: 'signMessage',
+          params: [message],
+        });
+      }
+
+      const sig = extractSignatureBase64(result);
+      if (!sig) throw new Error('No signature returned from provider');
+      return sig;
+    },
+    [getSolanaProvider, isFarcasterClient, supportsSolana]
+  );
 
   const extractSolAddress = (value: unknown): string | null => {
     if (!value) return null;
@@ -246,6 +356,11 @@ export function useFarcaster() {
     if (addr.startsWith('0x')) throw new Error('Detected EVM address. Solana wallet required.');
 
     setSolAddress(addr);
+    try {
+      window.localStorage.setItem(SOL_ADDRESS_STORAGE_KEY, addr);
+    } catch {
+      // ignore
+    }
     return addr;
   };
 
@@ -259,6 +374,11 @@ export function useFarcaster() {
     }
     setSolAddress(null);
     setSolBalance(null);
+    try {
+      window.localStorage.removeItem(SOL_ADDRESS_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
   };
 
   const fetchSolBalance = useCallback(async (address: string) => {
@@ -318,6 +438,7 @@ export function useFarcaster() {
           return;
         }
 
+        console.log('Setting balance:', out.sol);
         setSolBalance(out.sol);
       } catch (e) {
         if (cancelled) return;
@@ -339,6 +460,11 @@ export function useFarcaster() {
     setSolBalance(null);
     setUser(null);
     setError(null);
+    try {
+      window.localStorage.removeItem(SOL_ADDRESS_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
   };
 
   return {
@@ -358,6 +484,7 @@ export function useFarcaster() {
 
     connectWallet,
     disconnectWallet,
+    signSolanaMessage,
     logout,
 
     wallet: {
