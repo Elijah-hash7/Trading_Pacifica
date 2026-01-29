@@ -513,14 +513,14 @@ export default function HomePage() {
               className="flex-1 bg-zinc-900 hover:bg-zinc-800 rounded-xl py-3.5 flex items-center justify-center gap-2 transition-colors border border-zinc-800"
             >
               <Send className="w-4 h-4 text-zinc-400" />
-              <span className="text-sm font-medium text-zinc-300">Send</span>
+              <span className="text-sm font-medium text-zinc-300"></span>
             </button>
             <button
               onClick={() => setShowSwap(true)}
               className="flex-1 bg-zinc-900 hover:bg-zinc-800 rounded-xl py-3.5 flex items-center justify-center gap-2 transition-colors border border-zinc-800"
             >
               <ArrowLeftRight className="w-4 h-4 text-zinc-400" />
-              <span className="text-sm font-medium text-zinc-300">Swap</span>
+              <span className="text-sm font-medium text-zinc-300"></span>
             </button>
           </div>
         </div>

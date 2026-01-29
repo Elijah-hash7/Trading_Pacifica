@@ -185,7 +185,7 @@ export function useFarcaster() {
       throw new Error('Open in Warpcast to connect your wallet.');
     }
     if (!supportsSolana) {
-      throw new Error('This host does not support Solana wallet connections.');
+      throw new Error('Warpcast does not report Solana support for this miniapp yet.');
     }
 
     const provider = await getSolanaProvider();
@@ -197,8 +197,10 @@ export function useFarcaster() {
     if (provider.connect) await provider.connect();
     else if (provider.request) await provider.request({ method: 'connect' });
 
-    const addr = (await waitForSolAddress(provider)) ?? provider.publicKey?.toBase58?.();
+    const addr =
+      (await waitForSolAddress(provider, 20)) ?? provider.publicKey?.toBase58?.();
     if (!addr) throw new Error('No Solana public key returned from provider');
+    if (addr.startsWith('0x')) throw new Error('Detected EVM address. Solana wallet required.');
 
     setSolAddress(addr);
     return addr;
