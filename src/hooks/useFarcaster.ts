@@ -54,7 +54,6 @@ function withTimeout<T>(p: Promise<T>, ms = 2500): Promise<T> {
 const SOL_RPC_URLS = [
   'https://api.mainnet-beta.solana.com',
   'https://rpc.ankr.com/solana',
-  // keep demo last (least reliable)
   'https://solana-mainnet.g.alchemy.com/v2/demo',
 ];
 
@@ -125,6 +124,38 @@ export function useFarcaster() {
 
     return farcasterUser;
   };
+  const fetchSolBalance = useCallback(async (address: string) => {
+    for (const rpcUrl of SOL_RPC_URLS) {
+      try {
+        // per-RPC timeout so mobile doesn't hang forever
+        const res = await withTimeout(
+          fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getBalance',
+              params: [address],
+            }),
+            cache: 'no-store',
+          }),
+          3500
+        );
+
+        if (!res.ok) continue;
+
+        const json = await res.json().catch(() => null);
+        const lamports = json?.result?.value;
+        if (typeof lamports !== 'number') continue;
+
+        return { ok: true as const, sol: lamports / 1e9, rpcUrl };
+      } catch {
+        continue;
+      }
+    }
+    return { ok: false as const };
+  }, []);
 
   const initializeFarcaster = useCallback(async () => {
     try {
@@ -198,24 +229,52 @@ export function useFarcaster() {
   useEffect(() => {
     let cancelled = false;
 
-    const hydrateFromProvider = async () => {
-      if (!isFarcasterClient || !supportsSolana) return;
-      if (solAddress) return;
+    if (!solAddress) {
+      setSolBalance(null);
+      setSolBalanceError(null);
+      setSolBalanceLoading(false);
+      return;
+    }
 
-      const provider = await getSolanaProvider();
-      if (!provider) return;
+    const run = async () => {
+      try {
+        console.log('🔄 Starting balance fetch for:', solAddress);
+        setSolBalanceLoading(true);
+        setSolBalanceError(null);
 
-      const addr = provider.publicKey?.toBase58?.();
-      if (!addr || addr.startsWith('0x')) return;
+        const out = await fetchSolBalance(solAddress);
+        if (cancelled) {
+          console.log('⚠️ Balance fetch cancelled');
+          return;
+        }
 
-      if (!cancelled) setSolAddress(addr);
+        if (!out.ok) {
+          console.log('❌ Balance fetch failed (RPC)');
+          setSolBalance(null);
+          setSolBalanceError('SOL balance unavailable (RPC failed)');
+          return;
+        }
+
+        console.log('✅ Balance fetched:', out.sol, 'from', out.rpcUrl);
+        setSolBalance(out.sol);
+      } catch (e) {
+        if (cancelled) return;
+        console.error('❌ Balance fetch error:', e);
+        setSolBalance(null);
+        setSolBalanceError(e instanceof Error ? e.message : 'SOL balance unavailable');
+      } finally {
+        if (!cancelled) {
+          console.log('✅ Balance loading complete');
+          setSolBalanceLoading(false);
+        }
+      }
     };
 
-    void hydrateFromProvider();
+    run();
     return () => {
       cancelled = true;
     };
-  }, [getSolanaProvider, isFarcasterClient, solAddress, supportsSolana]);
+  }, [solAddress, fetchSolBalance]);
 
   const waitForSolAddress = async (provider: SolanaProvider, tries = 10) => {
     for (let i = 0; i < tries; i++) {
@@ -381,38 +440,7 @@ export function useFarcaster() {
     }
   };
 
-  const fetchSolBalance = useCallback(async (address: string) => {
-    for (const rpcUrl of SOL_RPC_URLS) {
-      try {
-        // per-RPC timeout so mobile doesn't hang forever
-        const res = await withTimeout(
-          fetch(rpcUrl, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'getBalance',
-              params: [address],
-            }),
-            cache: 'no-store',
-          }),
-          3500
-        );
 
-        if (!res.ok) continue;
-
-        const json = await res.json().catch(() => null);
-        const lamports = json?.result?.value;
-        if (typeof lamports !== 'number') continue;
-
-        return { ok: true as const, sol: lamports / 1e9, rpcUrl };
-      } catch {
-        continue;
-      }
-    }
-    return { ok: false as const };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;

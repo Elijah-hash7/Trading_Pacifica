@@ -6,7 +6,6 @@ import { sdk } from '@farcaster/miniapp-sdk';
 
 export default function RootPage() {
   useEffect(() => {
-    // Ensure Warpcast splash clears
     void sdk.actions.ready();
   }, []);
 

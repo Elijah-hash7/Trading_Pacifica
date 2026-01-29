@@ -408,13 +408,26 @@ export default function HomePage() {
 
 
   const balanceLabel = () => {
-    if (!wallet?.isConnected) return 'Connect wallet';
-    if (solBalanceLoading) return 'Loading…';
-    if (solBalanceError) return 'Balance unavailable';
+    // 1. Not connected
+    if (!wallet?.isConnected) {
+      return 'Connect wallet';
+    }
+
+    if (solBalanceError) {
+      return 'Balance unavailable';
+    }
+
+    // 3. Has valid balance (including 0)
     if (solBalance !== null && typeof solBalance === 'number') {
       return `${solBalance.toFixed(4)} SOL`;
     }
-    return 'Loading…';
+
+    // 4. Still loading (but with timeout safety)
+    if (solBalanceLoading) {
+      return 'Loading…';
+    }
+
+    return '0.0000 SOL';
   };
 
   return (
