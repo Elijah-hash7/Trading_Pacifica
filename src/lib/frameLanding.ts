@@ -1,0 +1,116 @@
+export type FrameLandingConfig = {
+  appName: string;
+  iconPath: string;
+  homePath: string;
+  buttonTitle: string;
+  title: string;
+  description: string;
+};
+
+export const frameLandingConfig: FrameLandingConfig = {
+  appName: 'Pacificast',
+  iconPath: '/icon.png',
+  homePath: '/Home',
+  buttonTitle: 'Open Pacificast',
+  title: 'Welcome to Pacificast!',
+  description: 'Click the button to connect your wallet and start using the dapp.',
+};
+
+export function renderFrameLandingHtml(opts: {
+  origin: string;
+  config?: FrameLandingConfig;
+}) {
+  const { origin, config = frameLandingConfig } = opts;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${config.appName} Frame</title>
+    <meta name="fc:frame" content="true" />
+    <meta name="fc:frame:version" content="1" />
+    <meta name="fc:frame:name" content="${config.appName}" />
+    <meta name="fc:frame:icon" content="${origin}${config.iconPath}" />
+    <meta name="fc:frame:homeUrl" content="${origin}${config.homePath}" />
+    <meta name="fc:frame:buttonTitle" content="${config.buttonTitle}" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px 18px;
+        background: radial-gradient(circle at top, #141726, #06070d 60%);
+        color: #e5e7eb;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .card {
+        width: min(340px, 92vw);
+        background: linear-gradient(180deg, rgba(20, 22, 30, 0.98), rgba(13, 15, 20, 0.98));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px;
+        padding: 22px 18px 24px;
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.65);
+        text-align: center;
+      }
+      .logo {
+        width: 70px;
+        height: 70px;
+        border-radius: 16px;
+        border: 1px solid rgba(34, 197, 94, 0.35);
+        margin: 0 auto 16px;
+        background: #0b0d13;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .logo img {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+        border-radius: 12px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 19px;
+        font-weight: 700;
+      }
+      p {
+        margin: 0 0 18px;
+        color: #a1a1aa;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .cta {
+        padding: 10px 16px;
+        font-size: 13px;
+        cursor: pointer;
+        border: none;
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        color: white;
+        border-radius: 10px;
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <img src="${origin}${config.iconPath}" alt="${config.appName}" />
+      </div>
+      <h1>${config.title}</h1>
+      <p>${config.description}</p>
+      <a class="cta" href="${origin}${config.homePath}">${config.buttonTitle}</a>
+    </div>
+  </body>
+</html>`;
+}

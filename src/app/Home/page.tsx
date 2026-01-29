@@ -7,6 +7,7 @@ import { useToast } from '@/components/ToastProvider';
 import { useRouter } from 'next/navigation';
 import Loading from '../loading';
 import SlideToConfirm from '@/components/slide-to-confirm';
+import { sdk } from '@farcaster/miniapp-sdk';
 
 interface Pair {
   id: string;
@@ -73,6 +74,10 @@ export default function HomePage() {
     solBalanceLoading,
     solBalanceError
   } = useFarcaster();
+
+  useEffect(() => {
+    void sdk.actions.ready();
+  }, []);
 
   const getErrMessage = (err: unknown) => {
     if (err instanceof Error) return err.message;
