@@ -52,10 +52,8 @@ function withTimeout<T>(p: Promise<T>, ms = 2500): Promise<T> {
 }
 
 const SOL_RPC_URLS = [
-  'https://api.mainnet-beta.solana.com',
-  'https://rpc.ankr.com/solana',
-  'https://solana-mainnet.g.alchemy.com/v2/demo',
-];
+  process.env.NEXT_PUBLIC_SOL_RPC_URL,
+].filter((url): url is string => typeof url === 'string' && url.length > 0);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -238,33 +236,33 @@ export function useFarcaster() {
 
     const run = async () => {
       try {
-        console.log('🔄 Starting balance fetch for:', solAddress);
+        console.log('Starting balance fetch for:', solAddress);
         setSolBalanceLoading(true);
         setSolBalanceError(null);
 
         const out = await fetchSolBalance(solAddress);
         if (cancelled) {
-          console.log('⚠️ Balance fetch cancelled');
+          console.log('Balance fetch cancelled');
           return;
         }
 
         if (!out.ok) {
-          console.log('❌ Balance fetch failed (RPC)');
+          console.log('Balance fetch failed (RPC)');
           setSolBalance(null);
           setSolBalanceError('SOL balance unavailable (RPC failed)');
           return;
         }
 
-        console.log('✅ Balance fetched:', out.sol, 'from', out.rpcUrl);
+        console.log('Balance fetched:', out.sol, 'from', out.rpcUrl);
         setSolBalance(out.sol);
       } catch (e) {
         if (cancelled) return;
-        console.error('❌ Balance fetch error:', e);
+        console.error('Balance fetch error:', e);
         setSolBalance(null);
         setSolBalanceError(e instanceof Error ? e.message : 'SOL balance unavailable');
       } finally {
         if (!cancelled) {
-          console.log('✅ Balance loading complete');
+          console.log('Balance loading complete');
           setSolBalanceLoading(false);
         }
       }

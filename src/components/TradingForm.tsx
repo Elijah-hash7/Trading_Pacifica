@@ -25,13 +25,15 @@ export default function TradingForm({
   walletAddress,
   solBalance,
   solBalanceLoading,
-  solBalanceError
+  solBalanceError,
+  connectWallet
 }: {
   selectedPair: { symbol?: string; mark?: string } | null;
   walletAddress: string; // should be Solana base58 now
   solBalance: number | null;
   solBalanceLoading?: boolean;
   solBalanceError?: string | null;
+  connectWallet?: () => Promise<string>;
 }) {
   const { pushToast } = useToast();
   const { signSolanaMessage } = useFarcaster();
@@ -70,8 +72,20 @@ export default function TradingForm({
     }
 
     if (!walletAddress || !isSolanaAddress(walletAddress)) {
-      pushToast('Connect a Solana wallet to place orders', { variant: 'warning' });
-      return;
+      if (connectWallet) {
+        try {
+          await connectWallet();
+        } catch (err) {
+          pushToast(
+            err instanceof Error ? err.message : 'Connect a Solana wallet to place orders',
+            { variant: 'warning' }
+          );
+          return;
+        }
+      } else {
+        pushToast('Connect a Solana wallet to place orders', { variant: 'warning' });
+        return;
+      }
     }
 
     if (solBalanceLoading) {
@@ -92,6 +106,15 @@ export default function TradingForm({
     if (solBalance <= 0) {
       pushToast('Insufficient SOL balance to place order', { variant: 'warning' });
       return;
+    }
+
+    // If trading SOL, enforce that SOL balance covers the USD size at current price.
+    if ((selectedPair?.symbol || '').toUpperCase() === 'SOL' && currentPrice > 0) {
+      const requiredSol = sizeNum / currentPrice;
+      if (Number.isFinite(requiredSol) && solBalance < requiredSol) {
+        pushToast('Insufficient SOL balance for this order size', { variant: 'warning' });
+        return;
+      }
     }
 
     if (!size || parseFloat(size) < 10) {
