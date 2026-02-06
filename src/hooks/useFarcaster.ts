@@ -38,7 +38,7 @@ type SolanaProvider = {
   request?: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
 };
 
-function withTimeout<T>(p: Promise<T>, ms = 2500): Promise<T> {
+function withTimeout<T>(p: Promise<T>, ms = 9000): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('timeout')), ms);
     p.then((v) => {
@@ -51,18 +51,22 @@ function withTimeout<T>(p: Promise<T>, ms = 2500): Promise<T> {
   });
 }
 
-const SOL_RPC_URLS = [
-  process.env.NEXT_PUBLIC_SOL_RPC_URL,
-].filter((url): url is string => typeof url === 'string' && url.length > 0);
+const SOL_RPC_URLS = [process.env.NEXT_PUBLIC_SOL_RPC_URL].filter(
+  (url): url is string => typeof url === 'string' && url.length > 0
+);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 const SOL_ADDRESS_STORAGE_KEY = 'pacificast_sol_address';
 
 function toBase64(bytes: Uint8Array) {
   let binary = '';
   bytes.forEach((b) => (binary += String.fromCharCode(b)));
   return btoa(binary);
+}
+
+function cleanSolAddress(address: string) {
+  // trims whitespace and strips accidental <...>
+  return address.trim().replace(/^<|>$/g, '');
 }
 
 export function useFarcaster() {
@@ -122,36 +126,63 @@ export function useFarcaster() {
 
     return farcasterUser;
   };
+
   const fetchSolBalance = useCallback(async (address: string) => {
+    const clean = cleanSolAddress(address);
+
     for (const rpcUrl of SOL_RPC_URLS) {
       try {
-        // per-RPC timeout so mobile doesn't hang forever
         const res = await withTimeout(
           fetch(rpcUrl, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
             body: JSON.stringify({
               jsonrpc: '2.0',
               id: 1,
               method: 'getBalance',
-              params: [address],
+              params: [clean],
             }),
             cache: 'no-store',
           }),
-          3500
+          9000
         );
 
-        if (!res.ok) continue;
+        const raw = await res.text().catch(() => '');
 
-        const json = await res.json().catch(() => null);
+        if (!res.ok) {
+          console.log('[SOL RPC non-200]', rpcUrl, res.status, raw.slice(0, 160));
+          continue;
+        }
+
+        let json: any = null;
+        try {
+          json = JSON.parse(raw);
+        } catch {
+          console.log('[SOL RPC invalid JSON]', rpcUrl, raw.slice(0, 160));
+          continue;
+        }
+
+        if (json?.error) {
+          console.log('[SOL RPC error]', rpcUrl, json.error);
+          continue;
+        }
+
         const lamports = json?.result?.value;
-        if (typeof lamports !== 'number') continue;
+        if (typeof lamports !== 'number') {
+          console.log('[SOL RPC unexpected shape]', rpcUrl, json);
+          continue;
+        }
 
         return { ok: true as const, sol: lamports / 1e9, rpcUrl };
-      } catch {
+      } catch (e) {
+        console.log('[SOL RPC exception]', rpcUrl, String(e));
         continue;
       }
     }
+
     return { ok: false as const };
   }, []);
 
@@ -160,14 +191,12 @@ export function useFarcaster() {
       setIsLoading(true);
       setError(null);
 
-      // ready can hang outside Warpcast — keep timeout
       try {
         await withTimeout(sdk.actions.ready(), 2500);
       } catch {
         // ignore
       }
 
-      // fetch both context + capabilities (either can be the "signal")
       let context: FarcasterMiniappContext | null = null;
       try {
         context = (await withTimeout(Promise.resolve(sdk.context), 2500)) as FarcasterMiniappContext;
@@ -184,8 +213,7 @@ export function useFarcaster() {
       }
       setCapabilities(caps);
 
-      const inMini =
-        Boolean(context?.user?.fid) || caps.includes('wallet.getSolanaProvider');
+      const inMini = Boolean(context?.user?.fid) || caps.includes('wallet.getSolanaProvider');
       setIsFarcasterClient(inMini);
 
       if (context) {
@@ -216,7 +244,6 @@ export function useFarcaster() {
       const provider = (await getProvider()) as SolanaProvider | null;
       if (!provider) return null;
 
-      // accept either connect/disconnect OR request-based providers
       if (provider.connect || provider.request) return provider;
       return null;
     } catch {
@@ -224,6 +251,7 @@ export function useFarcaster() {
     }
   }, [supportsSolana]);
 
+  // ✅ SINGLE balance fetch effect (removed duplicate)
   useEffect(() => {
     let cancelled = false;
 
@@ -236,39 +264,30 @@ export function useFarcaster() {
 
     const run = async () => {
       try {
-        console.log('Starting balance fetch for:', solAddress);
         setSolBalanceLoading(true);
         setSolBalanceError(null);
 
         const out = await fetchSolBalance(solAddress);
-        if (cancelled) {
-          console.log('Balance fetch cancelled');
-          return;
-        }
+        if (cancelled) return;
 
         if (!out.ok) {
-          console.log('Balance fetch failed (RPC)');
           setSolBalance(null);
           setSolBalanceError('SOL balance unavailable (RPC failed)');
           return;
         }
 
-        console.log('Balance fetched:', out.sol, 'from', out.rpcUrl);
+        // IMPORTANT: 0 is valid
         setSolBalance(out.sol);
       } catch (e) {
         if (cancelled) return;
-        console.error('Balance fetch error:', e);
         setSolBalance(null);
         setSolBalanceError(e instanceof Error ? e.message : 'SOL balance unavailable');
       } finally {
-        if (!cancelled) {
-          console.log('Balance loading complete');
-          setSolBalanceLoading(false);
-        }
+        if (!cancelled) setSolBalanceLoading(false);
       }
     };
 
-    run();
+    void run();
     return () => {
       cancelled = true;
     };
@@ -331,7 +350,6 @@ export function useFarcaster() {
           params: { message },
         });
       } catch {
-        // Some providers expect array params
         result = await provider.request({
           method: 'signMessage',
           params: [message],
@@ -400,7 +418,6 @@ export function useFarcaster() {
       throw new Error('Solana wallet provider not ready. Reopen the miniapp and try again.');
     }
 
-    // connect (both styles)
     let connectResult: unknown = null;
     if (provider.connect) connectResult = await provider.connect();
     else if (provider.request) connectResult = await provider.request({ method: 'connect' });
@@ -409,16 +426,19 @@ export function useFarcaster() {
       extractSolAddress(connectResult) ??
       (await waitForSolAddress(provider, 30)) ??
       provider.publicKey?.toBase58?.();
-    if (!addr) throw new Error('No Solana public key returned from provider');
-    if (addr.startsWith('0x')) throw new Error('Detected EVM address. Solana wallet required.');
 
-    setSolAddress(addr);
+    if (!addr) throw new Error('No Solana public key returned from provider');
+
+    const clean = cleanSolAddress(addr);
+    if (clean.startsWith('0x')) throw new Error('Detected EVM address. Solana wallet required.');
+
+    setSolAddress(clean);
     try {
-      window.localStorage.setItem(SOL_ADDRESS_STORAGE_KEY, addr);
+      window.localStorage.setItem(SOL_ADDRESS_STORAGE_KEY, clean);
     } catch {
       // ignore
     }
-    return addr;
+    return clean;
   };
 
   const disconnectWallet = async () => {
@@ -437,49 +457,6 @@ export function useFarcaster() {
       // ignore
     }
   };
-
-
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!solAddress) {
-      setSolBalance(null);
-      setSolBalanceError(null);
-      setSolBalanceLoading(false);
-      return;
-    }
-
-    const run = async () => {
-      try {
-        setSolBalanceLoading(true);
-        setSolBalanceError(null);
-
-        const out = await fetchSolBalance(solAddress);
-        if (cancelled) return;
-
-        if (!out.ok) {
-          setSolBalance(null);
-          setSolBalanceError('SOL balance unavailable (RPC failed)');
-          return;
-        }
-
-        console.log('Setting balance:', out.sol);
-        setSolBalance(out.sol);
-      } catch (e) {
-        if (cancelled) return;
-        setSolBalance(null);
-        setSolBalanceError(e instanceof Error ? e.message : 'SOL balance unavailable');
-      } finally {
-        if (!cancelled) setSolBalanceLoading(false);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [solAddress, fetchSolBalance]);
 
   const logout = async () => {
     setSolAddress(null);
