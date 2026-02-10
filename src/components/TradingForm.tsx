@@ -20,6 +20,21 @@ function isSolanaAddress(addr: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    promise
+      .then((v) => {
+        clearTimeout(t);
+        resolve(v);
+      })
+      .catch((e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+  });
+}
+
 export default function TradingForm({
   selectedPair,
   walletAddress,
@@ -154,9 +169,14 @@ export default function TradingForm({
         `tick:${payload.tick_level ?? ''}`,
       ].join('\n');
 
-      const signature = await signSolanaMessage(signatureMessage);
+      const signature = await withTimeout(
+        signSolanaMessage(signatureMessage),
+        8000,
+        'Wallet signature'
+      );
 
-      const response = await fetch('/api/orders/create', {
+      const controller = new AbortController();
+      const request = fetch('/api/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +184,9 @@ export default function TradingForm({
           signature,
           signatureEncoding: 'base64',
         }),
+        signal: controller.signal,
       });
+      const response = await withTimeout(request, 15000, 'Order request');
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));

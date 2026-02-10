@@ -8,6 +8,21 @@ function isSolanaAddress(addr: string) {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+        promise
+            .then((v) => {
+                clearTimeout(t);
+                resolve(v);
+            })
+            .catch((e) => {
+                clearTimeout(t);
+                reject(e);
+            });
+    });
+}
+
 function verifySolanaSignature(opts: {
     account: string;
     message: string;
@@ -128,7 +143,18 @@ export async function POST(request: Request) {
         });
 
         if (type === "market") {
-            const pacificaResponse = await pacifica.placeMarketOrder(body);
+            let pacificaResponse: any;
+            try {
+                pacificaResponse = await withTimeout(
+                    pacifica.placeMarketOrder(body),
+                    15000,
+                    "Pacifica API"
+                );
+            } catch (e) {
+                await prisma.order.update({ where: { id: order.id }, data: { status: "failed" } });
+                const message = e instanceof Error ? e.message : "Pacifica API error";
+                return NextResponse.json({ error: message }, { status: 504 });
+            }
 
             if (!pacificaResponse.success) {
                 await prisma.order.update({ where: { id: order.id }, data: { status: "failed" } });
