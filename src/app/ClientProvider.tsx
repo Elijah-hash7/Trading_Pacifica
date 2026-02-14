@@ -5,7 +5,7 @@ import { FarcasterSolanaProvider } from '@farcaster/mini-app-solana';
 import { ToastProvider } from '@/components/ToastProvider';
 
 const SOLANA_ENDPOINT =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+  process.env.NEXT_PUBLIC_SOL_RPC_URL ||
   'https://api.mainnet-beta.solana.com';
 
 export default function ClientProviders({ children }: { children: React.ReactNode }) {

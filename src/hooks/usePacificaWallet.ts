@@ -9,7 +9,7 @@ type BrowserWalletProvider = {
   isPhantom?: boolean;
   isSolflare?: boolean;
   publicKey?: { toBase58?: () => string };
-  connect?: () => Promise<unknown>;
+  connect?: (options?: { onlyIfTrusted?: boolean }) => Promise<unknown>;
   signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature?: Uint8Array } | Uint8Array>;
 };
 
@@ -50,6 +50,36 @@ export function usePacificaWallet() {
       setLinkedPacificaAddress(address);
       setLinkedProvider(provider);
     });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const { provider, name } = getWalletProvider();
+    if (!provider) return;
+
+    let cancelled = false;
+    const syncAddressFromProvider = async () => {
+      try {
+        // Avoid wallet popups on load; only reconnect if provider trusts this origin.
+        await provider.connect?.({ onlyIfTrusted: true });
+      } catch {
+        // ignore: provider may reject trusted reconnect
+      }
+
+      const providerAddress = provider.publicKey?.toBase58?.() || '';
+      if (!providerAddress || !isSolanaAddress(providerAddress) || cancelled) return;
+
+      window.localStorage.setItem(LINKED_WALLET_KEY, providerAddress);
+      window.localStorage.setItem(LINKED_WALLET_PROVIDER_KEY, name || 'Wallet');
+      setLinkedPacificaAddress(providerAddress);
+      setLinkedProvider(name || 'Wallet');
+    };
+
+    void syncAddressFromProvider();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

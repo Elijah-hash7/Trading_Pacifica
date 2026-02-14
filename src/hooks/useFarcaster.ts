@@ -51,8 +51,9 @@ function withTimeout<T>(p: Promise<T>, ms = 9000): Promise<T> {
   });
 }
 
-const SOL_RPC_URLS = [process.env.NEXT_PUBLIC_SOL_RPC_URL].filter(
-  (url): url is string => typeof url === 'string' && url.length > 0
+const SOL_RPC_URLS = [process.env.NEXT_PUBLIC_SOL_RPC_URL, 'https://api.mainnet-beta.solana.com'].filter(
+  (url, index, list): url is string =>
+    typeof url === 'string' && url.length > 0 && list.indexOf(url) === index
 );
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

@@ -2,6 +2,7 @@ import { pacifica } from "@/lib/pacifica";
 import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { calculatePnL } from '@/lib/utils'
+import { signOrderWithAgent } from "@/lib/pacificaAgent";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -46,14 +47,48 @@ export async function POST(
 
         
 
+        const account = typeof body?.account === "string" ? body.account : "";
+        if (!account) {
+            return NextResponse.json(
+                { error: "Account is required to close a position" },
+                { status: 400 }
+            );
+        }
+
+        if (account !== trade.user.walletAddress) {
+            return NextResponse.json(
+                { error: "Account does not match trade owner" },
+                { status: 403 }
+            );
+        }
+
+        const closePayload = {
+            account,
+            symbol: trade.pairSymbol,
+            amount: trade.order.size.toString(),
+            side: trade.side === 'long' ? 'ask' : 'bid',
+            type: "market",
+            timeStamp: new Date().toISOString(),
+        };
+
+        let signed: Awaited<ReturnType<typeof signOrderWithAgent>>;
+        try {
+            signed = await signOrderWithAgent(closePayload);
+        } catch (e) {
+            const message = e instanceof Error ? e.message : "Pacifica agent setup required";
+            return NextResponse.json(
+                { error: message, code: "AGENT_NOT_READY" },
+                { status: 400 }
+            );
+        }
+
         let pacificaResponse: { success?: boolean; data?: { entry_price?: number } };
         try {
             pacificaResponse = await withTimeout(
-                pacifica.placeMarketOrder({
-                    ...body,
-                    symbol: trade.pairSymbol,
-                    amount: trade.order.size.toString(),
-                    side: trade.side === 'long' ? 'ask' : 'bid'
+                pacifica.placeMarketOrder(signed.signedPayload, {
+                    headers: {
+                        agent_wallet: signed.agentPublicKey,
+                    },
                 }),
                 15000,
                 'Pacifica close order'
