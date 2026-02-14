@@ -3,6 +3,21 @@ import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { calculatePnL } from '@/lib/utils'
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+        promise
+            .then((v) => {
+                clearTimeout(t);
+                resolve(v);
+            })
+            .catch((e) => {
+                clearTimeout(t);
+                reject(e);
+            });
+    });
+}
+
 export async function POST(
     request: Request,
     { params }: { params: { id: string } | Promise<{ id: string }> }
@@ -31,12 +46,25 @@ export async function POST(
 
         
 
-        const pacificaResponse = await pacifica.placeMarketOrder({
-            ...body,
-            symbol: trade.pairSymbol,
-            amount: trade.order.size.toString(),
-            side: trade.side === 'long' ? 'ask' : 'bid'
-        });
+        let pacificaResponse: { success?: boolean; data?: { entry_price?: number } };
+        try {
+            pacificaResponse = await withTimeout(
+                pacifica.placeMarketOrder({
+                    ...body,
+                    symbol: trade.pairSymbol,
+                    amount: trade.order.size.toString(),
+                    side: trade.side === 'long' ? 'ask' : 'bid'
+                }),
+                15000,
+                'Pacifica close order'
+            );
+        } catch (e) {
+            const message = e instanceof Error ? e.message : 'Failed to close with Pacifica';
+            return NextResponse.json(
+                { error: message },
+                { status: 504 }
+            );
+        }
 
         if (!pacificaResponse.success) {
             return NextResponse.json(

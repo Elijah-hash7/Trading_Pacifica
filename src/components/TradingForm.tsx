@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from "react";
+import React, { useRef, useState } from 'react';
 import { ArrowUpCircle, ArrowDownCircle, Info, X, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
-import { useFarcaster } from '@/hooks/useFarcaster';
+import { useRouter } from 'next/navigation';
 
 type OrderPreview = {
   estPrice: number;
@@ -16,7 +16,6 @@ type OrderPreview = {
 };
 
 function isSolanaAddress(addr: string) {
-  // basic base58 check (final validation happens on server with PublicKey)
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
 }
 
@@ -37,21 +36,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 export default function TradingForm({
   selectedPair,
-  walletAddress,
-  solBalance,
-  solBalanceLoading,
-  solBalanceError,
-  connectWallet
+  linkedPacificaAddress,
 }: {
   selectedPair: { symbol?: string; mark?: string } | null;
-  walletAddress: string; // should be Solana base58 now
-  solBalance: number | null;
-  solBalanceLoading?: boolean;
-  solBalanceError?: string | null;
-  connectWallet?: () => Promise<string>;
+  linkedPacificaAddress: string;
 }) {
   const { pushToast } = useToast();
-  const { signSolanaMessage } = useFarcaster();
+  const router = useRouter();
+  const lastToastRef = useRef<{ message: string; at: number } | null>(null);
 
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [side, setSide] = useState<'long' | 'short'>('long');
@@ -60,6 +52,16 @@ export default function TradingForm({
   const [limitPrice, setLimitPrice] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+
+  const PACIFICA_DEPOSIT_URL = 'https://app.pacifica.fi';
+
+  const pushToastOnce = (message: string, opts: Parameters<typeof pushToast>[1]) => {
+    const now = Date.now();
+    const last = lastToastRef.current;
+    if (last && last.message === message && now - last.at < 2500) return;
+    lastToastRef.current = { message, at: now };
+    pushToast(message, opts);
+  };
 
   const currentPrice = parseFloat(selectedPair?.mark || '0');
   const sizeNum = parseFloat(size) || 0;
@@ -74,71 +76,55 @@ export default function TradingForm({
       side === 'long'
         ? currentPrice * (1 - (1 / leverage) * 0.9)
         : currentPrice * (1 + (1 / leverage) * 0.9),
-    marginUsage: sizeNum > 0 ? (sizeNum / leverage / 1000 * 100) : 0,
+    marginUsage: sizeNum > 0 ? (sizeNum / leverage / 1000) * 100 : 0,
     accountLeverage: leverage,
+  };
+
+  const routeToDeposit = () => {
+    window.location.assign(PACIFICA_DEPOSIT_URL);
   };
 
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
 
     if (!selectedPair) {
-      pushToast('Please select a trading pair', { variant: 'warning' });
+      pushToastOnce('Please select a trading pair', { variant: 'warning' });
       return;
     }
 
-    if (!walletAddress || !isSolanaAddress(walletAddress)) {
-      if (connectWallet) {
-        try {
-          await connectWallet();
-        } catch (err) {
-          pushToast(
-            err instanceof Error ? err.message : 'Connect a Solana wallet to place orders',
-            { variant: 'warning' }
-          );
-          return;
-        }
-      } else {
-        pushToast('Connect a Solana wallet to place orders', { variant: 'warning' });
-        return;
-      }
-    }
-
-    if (solBalanceLoading) {
-      pushToast('Balance is still loading. Please wait a moment.', { variant: 'info' });
+    if (!linkedPacificaAddress || !isSolanaAddress(linkedPacificaAddress)) {
+      pushToastOnce('Link your Pacifica wallet in Settings to trade.', { variant: 'warning' });
+      router.push('/settings');
       return;
-    }
-
-    if (solBalance === null) {
-      pushToast('Balance unavailable. Please try again.', { variant: 'warning' });
-      return;
-    }
-
-    if (solBalanceError) {
-      pushToast('Balance unavailable. Please retry shortly.', { variant: 'warning' });
-      return;
-    }
-
-    if (solBalance <= 0) {
-      pushToast('Insufficient SOL balance to place order', { variant: 'warning' });
-      return;
-    }
-
-    // If trading SOL, enforce that SOL balance covers the USD size at current price.
-    if ((selectedPair?.symbol || '').toUpperCase() === 'SOL' && currentPrice > 0) {
-      const requiredSol = sizeNum / currentPrice;
-      if (Number.isFinite(requiredSol) && solBalance < requiredSol) {
-        pushToast('Insufficient SOL balance for this order size', { variant: 'warning' });
-        return;
-      }
     }
 
     if (!size || parseFloat(size) < 10) {
-      pushToast('Minimum order size is $10', { variant: 'warning' });
+      pushToastOnce('Minimum order size is $10', { variant: 'warning' });
       return;
     }
 
     if (orderType === 'limit' && !limitPrice) {
-      pushToast('Please enter a limit price', { variant: 'warning' });
+      pushToastOnce('Please enter a limit price', { variant: 'warning' });
+      return;
+    }
+
+    const readinessResponse = await fetch(
+      `/api/account/readiness?account=${encodeURIComponent(linkedPacificaAddress)}&size=${encodeURIComponent(
+        String(sizeNum)
+      )}&leverage=${encodeURIComponent(String(leverage))}`
+    );
+    const readinessBody = await readinessResponse.json().catch(() => ({}));
+    if (!readinessResponse.ok) {
+      const message =
+        typeof readinessBody?.error === 'string'
+          ? readinessBody.error
+          : 'Could not verify Pacifica margin readiness';
+      pushToastOnce(message, { variant: 'warning' });
+      return;
+    }
+    if (!readinessBody?.ready) {
+      pushToastOnce('Insufficient Pacifica margin. Deposit collateral first.', { variant: 'warning' });
+      routeToDeposit();
       return;
     }
 
@@ -146,9 +132,8 @@ export default function TradingForm({
 
     try {
       const timeStamp = new Date().toISOString();
-
       const payload = {
-        account: walletAddress, // Solana base58
+        account: linkedPacificaAddress,
         symbol: selectedPair.symbol,
         amount: size,
         side: side === 'long' ? 'bid' : 'ask',
@@ -158,49 +143,40 @@ export default function TradingForm({
         timeStamp,
       };
 
-      const signatureMessage = [
-        'Pacificast Order',
-        `account:${payload.account}`,
-        `symbol:${payload.symbol}`,
-        `amount:${payload.amount}`,
-        `side:${payload.side}`,
-        `type:${payload.type}`,
-        `timestamp:${payload.timeStamp}`,
-        `tick:${payload.tick_level ?? ''}`,
-      ].join('\n');
-
-      const signature = await withTimeout(
-        signSolanaMessage(signatureMessage),
-        8000,
-        'Wallet signature'
-      );
-
-      const controller = new AbortController();
       const request = fetch('/api/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...payload,
-          signature,
-          signatureEncoding: 'base64',
         }),
-        signal: controller.signal,
       });
+
       const response = await withTimeout(request, 15000, 'Order request');
+      const raw = await response.text().catch(() => '');
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err?.error || 'Failed to place order');
+        let message = `Failed to place order (${response.status})`;
+        try {
+          const parsed = raw ? JSON.parse(raw) : {};
+          message = parsed?.error || parsed?.details || message;
+        } catch {
+          if (raw) message = raw;
+        }
+        throw new Error(message);
       }
 
-      pushToast(`${orderType === 'market' ? 'Market' : 'Limit'} order placed`, { variant: 'success' });
-
+      pushToastOnce(`${orderType === 'market' ? 'Market' : 'Limit'} order placed`, { variant: 'success' });
       setSize('');
       setLimitPrice('');
       setShowPreview(false);
     } catch (error) {
-      console.error('Error placing order:', error);
-      pushToast(error instanceof Error ? error.message : 'Failed to place order', { variant: 'error' });
+      const message = error instanceof Error ? error.message : 'Failed to place order';
+      if (/insufficient|margin|deposit|required/i.test(message)) {
+        pushToastOnce('Deposit required on Pacifica. Redirecting to deposit.', { variant: 'warning' });
+        routeToDeposit();
+      } else {
+        pushToastOnce(message, { variant: 'error' });
+      }
     } finally {
       setLoading(false);
     }
@@ -220,47 +196,39 @@ export default function TradingForm({
   return (
     <>
       <div className="bg-zinc-950 rounded-2xl border border-zinc-800/50 overflow-hidden">
-        {/* Header */}
         <div className="px-4 py-3 border-b border-zinc-800/50">
-          <h2 className="text-base font-semibold text-white">
-            Trade {selectedPair.symbol}/USD
-          </h2>
+          <h2 className="text-base font-semibold text-white">Trade {selectedPair.symbol}/USD</h2>
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          {/* Order Type Toggle */}
           <div className="flex gap-1 p-1 bg-zinc-900 rounded-xl">
             <button
               type="button"
               onClick={() => setOrderType('market')}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${orderType === 'market'
-                ? 'bg-emerald-600 text-white'
-                : 'text-zinc-400 hover:text-zinc-300'
-                }`}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                orderType === 'market' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-zinc-300'
+              }`}
             >
               Market
             </button>
             <button
               type="button"
               onClick={() => setOrderType('limit')}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${orderType === 'limit'
-                ? 'bg-emerald-600 text-white'
-                : 'text-zinc-400 hover:text-zinc-300'
-                }`}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                orderType === 'limit' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-zinc-300'
+              }`}
             >
               Limit
             </button>
           </div>
 
-          {/* Side Toggle */}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setSide('long')}
-              className={`flex-1 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${side === 'long'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
-                }`}
+              className={`flex-1 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
+                side === 'long' ? 'bg-emerald-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+              }`}
             >
               <ArrowUpCircle size={18} />
               Long
@@ -268,30 +236,23 @@ export default function TradingForm({
             <button
               type="button"
               onClick={() => setSide('short')}
-              className={`flex-1 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${side === 'short'
-                ? 'bg-red-600 text-white'
-                : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
-                }`}
+              className={`flex-1 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
+                side === 'short' ? 'bg-red-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+              }`}
             >
               <ArrowDownCircle size={18} />
               Short
             </button>
           </div>
 
-          {/* Current Price */}
           <div className="bg-zinc-900 p-4 rounded-xl">
             <div className="text-xs text-zinc-500 mb-1">Current Price</div>
-            <div className="text-xl font-semibold font-mono text-white">
-              ${currentPrice.toLocaleString()}
-            </div>
+            <div className="text-xl font-semibold font-mono text-white">${currentPrice.toLocaleString()}</div>
           </div>
 
-          {/* Limit Price (only for limit orders) */}
           {orderType === 'limit' && (
             <div>
-              <label className="block text-xs text-zinc-500 mb-2">
-                Limit Price (USD)
-              </label>
+              <label className="block text-xs text-zinc-500 mb-2">Limit Price (USD)</label>
               <div className="relative">
                 <input
                   type="number"
@@ -302,20 +263,11 @@ export default function TradingForm({
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 focus:ring-1 focus:ring-zinc-700"
                 />
               </div>
-              <div className="text-xs text-zinc-600 mt-1.5">
-                {side === 'long'
-                  ? 'Buy when price drops to this level'
-                  : 'Sell when price rises to this level'
-                }
-              </div>
             </div>
           )}
 
-          {/* Size Input */}
           <div>
-            <label className="block text-xs text-zinc-500 mb-2">
-              Size (USD)
-            </label>
+            <label className="block text-xs text-zinc-500 mb-2">Size (USD)</label>
             <div className="relative">
               <input
                 type="number"
@@ -335,7 +287,6 @@ export default function TradingForm({
             </div>
           </div>
 
-          {/* Leverage */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-zinc-500">Leverage</label>
@@ -371,26 +322,18 @@ export default function TradingForm({
                 style={{ width: `${((leverage - 1) / 49) * 100}%` }}
               />
             </div>
-            <div className="flex justify-between text-xs text-zinc-600 mt-1.5">
-              <span>1x</span>
-              <span>25x</span>
-              <span>50x</span>
-            </div>
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-4 rounded-xl font-semibold text-white transition-all ${side === 'long'
-              ? 'bg-emerald-600 hover:bg-emerald-500'
-              : 'bg-red-600 hover:bg-red-500'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`w-full py-4 rounded-xl font-semibold text-white transition-all ${
+              side === 'long' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {loading ? 'Placing Order...' : `${side.toUpperCase()} ${selectedPair.symbol}`}
           </button>
 
-          {/* Preview Order Button */}
           <button
             type="button"
             onClick={() => setShowPreview(true)}
@@ -400,7 +343,6 @@ export default function TradingForm({
             Preview Order details
           </button>
 
-          {/* Fee Info */}
           <div className="flex justify-between items-center text-sm pt-2 border-t border-zinc-800/50 mb-2">
             <span className="text-zinc-500">Trading Fee (0.04%):</span>
             <span className="text-white font-mono">${feeAmount.toFixed(2)}</span>
@@ -408,11 +350,9 @@ export default function TradingForm({
         </form>
       </div>
 
-      {/* Order Preview Modal */}
       {showPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
           <div className="bg-zinc-900 rounded-2xl border border-zinc-800 w-full max-w-sm overflow-hidden">
-            {/* Modal Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
               <h3 className="text-base font-semibold text-white">Order details</h3>
               <button
@@ -423,61 +363,30 @@ export default function TradingForm({
               </button>
             </div>
 
-            {/* Modal Content */}
             <div className="p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-zinc-500">Est. Price</span>
                 <span className="text-sm font-mono text-white">{orderPreview.estPrice.toLocaleString()}</span>
               </div>
-
               <div className="flex justify-between items-center">
                 <span className="text-sm text-zinc-500">Est. Fee</span>
-                <span className="text-sm font-mono text-white">
-                  {orderPreview.estFee.toFixed(2)} <span className="text-zinc-500">USDC</span>
-                </span>
+                <span className="text-sm font-mono text-white">{orderPreview.estFee.toFixed(2)} USDC</span>
               </div>
-
               <div className="flex justify-between items-center">
                 <span className="text-sm text-zinc-500">Max Slippage</span>
                 <span className="text-sm font-mono text-emerald-400">{orderPreview.maxSlippage.toFixed(2)}%</span>
               </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-zinc-500">Position</span>
-                <span className="text-sm font-mono text-white">{orderPreview.position}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-zinc-500">Est. Liq Price</span>
-                <span className="text-sm font-mono text-white">
-                  {orderPreview.estLiqPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-zinc-500">Margin Usage</span>
-                <span className="text-sm font-mono text-white">
-                  {orderPreview.marginUsage.toFixed(2)}%
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-zinc-500">Account Leverage</span>
-                <span className="text-sm font-mono text-white">{orderPreview.accountLeverage}x</span>
-              </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-zinc-800">
               <button
                 onClick={(e) => {
                   void handleSubmit(e as unknown as React.FormEvent);
                 }}
                 disabled={loading}
-                className={`w-full py-3.5 rounded-xl font-semibold text-white transition-all ${side === 'long'
-                  ? 'bg-emerald-600 hover:bg-emerald-500'
-                  : 'bg-red-600 hover:bg-red-500'
-                  } ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                className={`w-full py-3.5 rounded-xl font-semibold text-white transition-all ${
+                  side === 'long' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'
+                } ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {loading ? 'Placing Order...' : 'Confirm Order'}
               </button>

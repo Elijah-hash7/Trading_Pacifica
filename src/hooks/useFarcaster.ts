@@ -57,6 +57,7 @@ const SOL_RPC_URLS = [process.env.NEXT_PUBLIC_SOL_RPC_URL].filter(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SOL_ADDRESS_STORAGE_KEY = 'pacificast_sol_address';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 function toBase64(bytes: Uint8Array) {
   let binary = '';
@@ -87,6 +88,9 @@ export function useFarcaster() {
   const [solBalance, setSolBalance] = useState<number | null>(null);
   const [solBalanceLoading, setSolBalanceLoading] = useState(false);
   const [solBalanceError, setSolBalanceError] = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
+  const [usdcBalanceLoading, setUsdcBalanceLoading] = useState(false);
+  const [usdcBalanceError, setUsdcBalanceError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -186,6 +190,82 @@ export function useFarcaster() {
     return { ok: false as const };
   }, []);
 
+  const fetchUsdcBalance = useCallback(async (address: string) => {
+    const clean = cleanSolAddress(address);
+
+    for (const rpcUrl of SOL_RPC_URLS) {
+      try {
+        const res = await withTimeout(
+          fetch(rpcUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getTokenAccountsByOwner',
+              params: [
+                clean,
+                { mint: USDC_MINT },
+                { encoding: 'jsonParsed' },
+              ],
+            }),
+            cache: 'no-store',
+          }),
+          9000
+        );
+
+        const raw = await res.text().catch(() => '');
+        if (!res.ok) {
+          console.log('[USDC RPC non-200]', rpcUrl, res.status, raw.slice(0, 160));
+          continue;
+        }
+
+        let json: any = null;
+        try {
+          json = JSON.parse(raw);
+        } catch {
+          console.log('[USDC RPC invalid JSON]', rpcUrl, raw.slice(0, 160));
+          continue;
+        }
+
+        if (json?.error) {
+          console.log('[USDC RPC error]', rpcUrl, json.error);
+          continue;
+        }
+
+        const accounts = json?.result?.value;
+        if (!Array.isArray(accounts)) {
+          console.log('[USDC RPC unexpected shape]', rpcUrl, json);
+          continue;
+        }
+
+        let total = 0;
+        for (const acc of accounts) {
+          const tokenAmount = acc?.account?.data?.parsed?.info?.tokenAmount;
+          const uiAmount = tokenAmount?.uiAmount;
+          if (typeof uiAmount === 'number') {
+            total += uiAmount;
+            continue;
+          }
+          const uiAmountString = tokenAmount?.uiAmountString;
+          if (typeof uiAmountString === 'string') {
+            const parsed = Number.parseFloat(uiAmountString);
+            if (Number.isFinite(parsed)) total += parsed;
+          }
+        }
+
+        return { ok: true as const, usdc: total, rpcUrl };
+      } catch (e) {
+        console.log('[USDC RPC exception]', rpcUrl, String(e));
+        continue;
+      }
+    }
+
+    return { ok: false as const };
+  }, []);
   const initializeFarcaster = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -259,6 +339,9 @@ export function useFarcaster() {
       setSolBalance(null);
       setSolBalanceError(null);
       setSolBalanceLoading(false);
+      setUsdcBalance(null);
+      setUsdcBalanceError(null);
+      setUsdcBalanceLoading(false);
       return;
     }
 
@@ -266,24 +349,40 @@ export function useFarcaster() {
       try {
         setSolBalanceLoading(true);
         setSolBalanceError(null);
+        setUsdcBalanceLoading(true);
+        setUsdcBalanceError(null);
 
-        const out = await fetchSolBalance(solAddress);
+        const [solOut, usdcOut] = await Promise.all([
+          fetchSolBalance(solAddress),
+          fetchUsdcBalance(solAddress),
+        ]);
         if (cancelled) return;
 
-        if (!out.ok) {
+        if (!solOut.ok) {
           setSolBalance(null);
           setSolBalanceError('SOL balance unavailable (RPC failed)');
-          return;
+        } else {
+          // IMPORTANT: 0 is valid
+          setSolBalance(solOut.sol);
         }
 
-        // IMPORTANT: 0 is valid
-        setSolBalance(out.sol);
+        if (!usdcOut.ok) {
+          setUsdcBalance(null);
+          setUsdcBalanceError('USDC balance unavailable (RPC failed)');
+        } else {
+          setUsdcBalance(usdcOut.usdc);
+        }
       } catch (e) {
         if (cancelled) return;
         setSolBalance(null);
         setSolBalanceError(e instanceof Error ? e.message : 'SOL balance unavailable');
+        setUsdcBalance(null);
+        setUsdcBalanceError(e instanceof Error ? e.message : 'USDC balance unavailable');
       } finally {
-        if (!cancelled) setSolBalanceLoading(false);
+        if (!cancelled) {
+          setSolBalanceLoading(false);
+          setUsdcBalanceLoading(false);
+        }
       }
     };
 
@@ -484,6 +583,9 @@ export function useFarcaster() {
     solBalance,
     solBalanceLoading,
     solBalanceError,
+    usdcBalance,
+    usdcBalanceLoading,
+    usdcBalanceError,
 
     connectWallet,
     disconnectWallet,

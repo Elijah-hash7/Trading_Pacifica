@@ -16,11 +16,16 @@ export async function GET (request: Request) {
         }
 
         const response = await pacifica.getOpenOrders(walletAddress);
+        const orders = Array.isArray(response?.orders)
+            ? response.orders
+            : Array.isArray(response?.data)
+                ? response.data
+                : [];
 
 
         return NextResponse.json({
             success: true,
-            orders: response.data
+            orders
         });
 
 

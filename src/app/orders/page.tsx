@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { useFarcaster } from '@/hooks/useFarcaster';
+import { usePacificaWallet } from '@/hooks/usePacificaWallet';
 import OrdersList from '@/components/OrdersList';
 
 export default function OrdersPage() {
-  const { walletAddress } = useFarcaster();
+  const { linkedPacificaAddress } = usePacificaWallet();
 
   return (
     <div className="min-h-screen bg-black text-white pb-32">
@@ -18,7 +18,7 @@ export default function OrdersPage() {
       </header>
 
       <div className="p-4">
-        <OrdersList walletAddress={walletAddress} />
+        <OrdersList walletAddress={linkedPacificaAddress} />
       </div>
     </div>
   );

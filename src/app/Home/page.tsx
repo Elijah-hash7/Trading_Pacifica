@@ -8,6 +8,8 @@ import { useRouter } from 'next/navigation';
 import Loading from '../loading';
 import SlideToConfirm from '@/components/slide-to-confirm';
 import { sdk } from '@farcaster/miniapp-sdk';
+import WalletBalanceCarousel, { type WalletCarouselItem } from '@/components/WalletBalanceCarousel';
+import { usePacificaWallet } from '@/hooks/usePacificaWallet';
 
 interface Pair {
   id: string;
@@ -53,6 +55,7 @@ export default function HomePage() {
   } = useFarcaster();
   const inFarcasterClient = isFarcasterClient;
   const { pushToast } = useToast();
+  const { linkedPacificaAddress, connectLinkedWallet } = usePacificaWallet();
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [connectWalletError, setConnectWalletError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -80,6 +83,10 @@ export default function HomePage() {
   const [sendFeeLoading, setSendFeeLoading] = useState(false);
   const [sendFeeError, setSendFeeError] = useState<string | null>(null);
   const [connectingWallet, setConnectingWallet] = useState(false);
+  const [activeWalletIndex, setActiveWalletIndex] = useState(0);
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [depositEmbedUrl, setDepositEmbedUrl] = useState<string | null>(null);
+  const [depositLoading, setDepositLoading] = useState(false);
   const router = useRouter();
 
 
@@ -393,11 +400,6 @@ export default function HomePage() {
     });
   }, [pairs, searchQuery]);
 
-  if (isLoading || loading) return <Loading />;
-
-  if (isLoading || loading) return <Loading />;
-
-
   const handleTokenPick = (pair: Pair) => {
     if (tokenPickerTarget === 'swapFrom') {
       setSwapFromToken(pair);
@@ -439,6 +441,69 @@ export default function HomePage() {
 
     return '0.0000 SOL';
   };
+
+  const walletItems: WalletCarouselItem[] = [
+    {
+      id: 'primary',
+      title: 'Wallet Balance',
+      subtitle: wallet?.isConnected ? 'Connected wallet' : 'Not connected',
+      badge: 'LIVE',
+      balanceLabel: balanceLabel(),
+    },
+    {
+      id: 'pacifica',
+      title: 'Pacifica Account',
+      subtitle: undefined,
+      badge: 'PACIFICA',
+      balanceLabel: '$0.00',
+      secondaryLabel: 'Unrealized PnL: $0.00',
+      secondaryTone: 'muted',
+      showDepositAction: true,
+    },
+  ];
+
+  const openDeposit = useCallback(async () => {
+    setDepositEmbedUrl(null);
+    setDepositOpen(true);
+
+    if (!linkedPacificaAddress) return;
+
+    setDepositLoading(true);
+    try {
+      const response = await fetch('/api/pacifica/deposit/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: linkedPacificaAddress }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body?.embedUrl !== 'string') {
+        throw new Error(body?.error || 'Unable to start deposit flow');
+      }
+      setDepositEmbedUrl(body.embedUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start deposit flow';
+      pushToast(message, { variant: 'error' });
+    } finally {
+      setDepositLoading(false);
+    }
+  }, [linkedPacificaAddress, pushToast]);
+
+  const onConnectPacifica = useCallback(async () => {
+    try {
+      await connectLinkedWallet();
+      pushToast('Pacifica wallet linked.', { variant: 'success' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to link Pacifica wallet';
+      pushToast(message, { variant: 'error' });
+    }
+  }, [connectLinkedWallet, pushToast]);
+
+  const closeDeposit = useCallback(() => {
+    setDepositOpen(false);
+    setDepositEmbedUrl(null);
+  }, []);
+
+  if (isLoading || loading) return <Loading />;
 
   return (
     <>
@@ -514,22 +579,14 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Volume Stats Card */}
-        <div className="px-5 py-3">
-          <div className="bg-zinc-900/80 rounded-2xl p-6 border border-zinc-800/50">
-            <div className="flex justify-between items-start mb-1">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-zinc-500 uppercase tracking-wider">Wallet Balance</span>
-              </div>
-              <span className="text-xs text-zinc-500">LIVE</span>
-            </div>
-            <div className="text-3xl font-bold tracking-tight mb-2">{balanceLabel()}</div>
-            {solBalanceError && (
-              <div className="mt-2 text-xs text-zinc-500">
-                Balance fetch failed. Please retry shortly.
-              </div>
-            )}
-          </div>
+        <div className="py-3">
+          <WalletBalanceCarousel
+            className="px-5"
+            items={walletItems}
+            activeIndex={activeWalletIndex}
+            onActiveIndexChange={setActiveWalletIndex}
+            onDeposit={() => void openDeposit()}
+          />
         </div>
 
         {/* Action Buttons */}
@@ -1091,6 +1148,45 @@ export default function HomePage() {
         </div>
       )}
 
+      {depositOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center pointer-events-none">
+          <div className="absolute inset-0 bg-black/70 pointer-events-auto" onClick={closeDeposit} />
+          <div className="relative w-full max-w-lg bg-zinc-900 border-t border-zinc-800 rounded-t-2xl mb-16 h-[78vh] pointer-events-auto flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Pacifica deposit</h3>
+              <button
+                type="button"
+                onClick={closeDeposit}
+                className="w-8 h-8 rounded-lg hover:bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {linkedPacificaAddress ? (
+              depositEmbedUrl ? (
+                <iframe title="Pacifica Deposit" src={depositEmbedUrl} className="h-full w-full border-0" />
+              ) : (
+                <div className="h-full flex items-center justify-center text-sm text-zinc-500">
+                  {depositLoading ? 'Loading deposit page…' : 'Loading deposit page…'}
+                </div>
+              )
+            ) : (
+              <div className="h-full p-6 flex flex-col items-center justify-center text-center gap-3">
+                <div className="text-base font-semibold text-white">Link a Pacifica wallet to deposit</div>
+                <div className="text-sm text-zinc-500">You’ll be prompted to connect and sign.</div>
+                <button
+                  type="button"
+                  onClick={() => void onConnectPacifica()}
+                  className="mt-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Link Pacifica Wallet
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

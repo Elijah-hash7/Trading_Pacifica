@@ -1,8 +1,7 @@
 import { pacifica } from "@/lib/pacifica";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import nacl from "tweetnacl";
-import { PublicKey } from "@solana/web3.js";
+import { signOrderWithAgent } from "@/lib/pacificaAgent";
 
 function isSolanaAddress(addr: string) {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
@@ -23,26 +22,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
     });
 }
 
-function verifySolanaSignature(opts: {
-    account: string;
-    message: string;
-    signatureBase64: string;
-}) {
-    const { account, message, signatureBase64 } = opts;
-
-    // Strong validation
-    const pubkey = new PublicKey(account); // throws if invalid
-    const messageBytes = new TextEncoder().encode(message);
-    const sigBytes = Buffer.from(signatureBase64, "base64"); // 64 bytes expected
-
-    if (sigBytes.length !== 64) return false;
-
-    return nacl.sign.detached.verify(
-        messageBytes,
-        new Uint8Array(sigBytes),
-        pubkey.toBytes()
-    );
-}
+type PacificaOrderResponse = {
+    success?: boolean;
+    data?: {
+        order_id?: string;
+        entry_price?: number;
+    };
+    error?: string;
+    details?: string;
+};
 
 export async function POST(request: Request) {
     try {
@@ -50,23 +38,16 @@ export async function POST(request: Request) {
 
         const {
             account,
-            signature,
-            signatureEncoding,
             timeStamp,
             symbol,
             amount,
             side,
             type = "market",
             tick_level,
-            builder_code,
         } = body;
 
-        if (!account || !signature || !symbol || !amount || !side) {
+        if (!account || !symbol || !amount || !side) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-        }
-
-        if (!timeStamp) {
-            return NextResponse.json({ error: "Missing timestamp" }, { status: 400 });
         }
 
         // Solana address validation
@@ -74,39 +55,93 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Invalid Solana account address" }, { status: 400 });
         }
 
-        if (signatureEncoding !== "base64" || typeof signature !== "string") {
-            return NextResponse.json({ error: "Invalid signature encoding (expected base64)" }, { status: 400 });
-        }
-
-        const signatureMessage = [
-            "Pacificast Order",
-            `account:${account}`,
-            `symbol:${symbol}`,
-            `amount:${amount}`,
-            `side:${side}`,
-            `type:${type}`,
-            `timestamp:${timeStamp}`,
-            `tick:${tick_level ?? ""}`,
-        ].join("\n");
-
-        let signatureValid = false;
-        try {
-            signatureValid = verifySolanaSignature({
-                account,
-                message: signatureMessage,
-                signatureBase64: signature,
-            });
-        } catch {
-            signatureValid = false;
-        }
-
-        if (!signatureValid) {
-            return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
-        }
-
         const tradeSize = Number.parseFloat(amount);
         if (!Number.isFinite(tradeSize) || tradeSize <= 0) {
             return NextResponse.json({ error: "Invalid trade size" }, { status: 400 });
+        }
+        const normalizedTimeStamp =
+            typeof timeStamp === "string" && timeStamp.length > 0
+                ? timeStamp
+                : new Date().toISOString();
+
+        const requestedLeverage = Number.parseFloat(String(body.leverage ?? 1));
+        const leverage = Number.isFinite(requestedLeverage) && requestedLeverage > 0
+            ? requestedLeverage
+            : 1;
+        const requiredMargin = tradeSize / leverage;
+
+        if (type === "market") {
+            const accountResponse = await withTimeout(
+                pacifica.getAccountState(account),
+                10000,
+                "Pacifica account state"
+            );
+            const accountData =
+                accountResponse?.data && typeof accountResponse.data === "object"
+                    ? accountResponse.data
+                    : accountResponse;
+            const availableToSpend = Number(accountData?.available_to_spend ?? 0);
+            const balance = Number(accountData?.balance ?? 0);
+            const accountEquity = Number(accountData?.account_equity ?? 0);
+            const totalMarginUsed = Number(accountData?.total_margin_used ?? 0);
+
+            if (!Number.isFinite(availableToSpend)) {
+                return NextResponse.json(
+                    {
+                        error: "Unable to read Pacifica account state",
+                        code: "ACCOUNT_STATE_UNAVAILABLE",
+                    },
+                    { status: 502 }
+                );
+            }
+
+            if (availableToSpend < requiredMargin) {
+                return NextResponse.json(
+                    {
+                        error: "Insufficient margin. Deposit collateral in Pacifica.",
+                        code: "INSUFFICIENT_MARGIN",
+                        details: {
+                            available_to_spend: availableToSpend,
+                            required_margin: requiredMargin,
+                            balance,
+                            account_equity: accountEquity,
+                            total_margin_used: totalMarginUsed,
+                        },
+                    },
+                    { status: 400 }
+                );
+            }
+        }
+
+        let signedLimitPayload: string | null = null;
+        if (type === "limit") {
+            try {
+                const out = await signOrderWithAgent({
+                    account,
+                    symbol,
+                    amount,
+                    side,
+                    type,
+                    tick_level,
+                    leverage,
+                    timeStamp: normalizedTimeStamp,
+                });
+                signedLimitPayload = JSON.stringify({
+                    payload: out.signedPayload,
+                    headers: {
+                        agent_wallet: out.agentPublicKey,
+                    },
+                });
+            } catch (e) {
+                const message = e instanceof Error ? e.message : "Agent wallet setup required";
+                return NextResponse.json(
+                    {
+                        error: message,
+                        code: "AGENT_NOT_READY",
+                    },
+                    { status: 400 }
+                );
+            }
         }
 
         // find or create user
@@ -134,19 +169,47 @@ export async function POST(request: Request) {
                 type,
                 side: side === "bid" ? "long" : "short",
                 size: tradeSize,
-                leverage: body.leverage || 1,
+                leverage: Math.floor(leverage),
                 limitPrice: tick_level ? parseFloat(tick_level) : null,
                 status: "pending",
-                signedPayload: type === "limit" ? JSON.stringify(body) : null,
+                signedPayload: signedLimitPayload,
                 filledAt: null,
             },
         });
 
         if (type === "market") {
-            let pacificaResponse: any;
+            let pacificaResponse: PacificaOrderResponse;
+            let signed: Awaited<ReturnType<typeof signOrderWithAgent>>;
+            try {
+                signed = await signOrderWithAgent({
+                    account,
+                    symbol,
+                    amount,
+                    side,
+                    type,
+                    tick_level,
+                    leverage,
+                    timeStamp: normalizedTimeStamp,
+                });
+            } catch (e) {
+                await prisma.order.update({ where: { id: order.id }, data: { status: "failed" } });
+                const message = e instanceof Error ? e.message : "Pacifica agent setup required";
+                return NextResponse.json(
+                    {
+                        error: message,
+                        code: "AGENT_NOT_READY",
+                    },
+                    { status: 400 }
+                );
+            }
+
             try {
                 pacificaResponse = await withTimeout(
-                    pacifica.placeMarketOrder(body),
+                    pacifica.placeMarketOrder(signed.signedPayload, {
+                        headers: {
+                            agent_wallet: signed.agentPublicKey,
+                        },
+                    }),
                     15000,
                     "Pacifica API"
                 );
@@ -158,7 +221,25 @@ export async function POST(request: Request) {
 
             if (!pacificaResponse.success) {
                 await prisma.order.update({ where: { id: order.id }, data: { status: "failed" } });
-                return NextResponse.json({ error: "Failed to place order with Pacifica" }, { status: 500 });
+                const backendMessage =
+                    pacificaResponse.error || pacificaResponse.details || "Failed to place order with Pacifica";
+                if (/insufficient|margin|deposit|required/i.test(backendMessage)) {
+                    return NextResponse.json(
+                        {
+                            error: "Insufficient margin. Deposit collateral in Pacifica.",
+                            code: "INSUFFICIENT_MARGIN",
+                            details: backendMessage,
+                        },
+                        { status: 400 }
+                    );
+                }
+                return NextResponse.json(
+                    {
+                        error: backendMessage,
+                        details: pacificaResponse.details || null,
+                    },
+                    { status: 500 }
+                );
             }
 
             await prisma.$transaction([
@@ -178,7 +259,7 @@ export async function POST(request: Request) {
                         pairSymbol: symbol,
                         side: side === "bid" ? "long" : "short",
                         size: tradeSize,
-                        leverage: body.leverage || 1,
+                        leverage: Math.floor(leverage),
                         entryPrice: pacificaResponse.data?.entry_price || 0,
                         fee,
                         status: "open",

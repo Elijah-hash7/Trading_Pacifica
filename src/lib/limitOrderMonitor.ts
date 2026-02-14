@@ -107,14 +107,23 @@ export async function ExecuteOrder(order: PendingLimitOrder, executionPrice: num
             return;
         }
 
-        const signedPayload = JSON.parse(order.signedPayload);
+        const parsedPayload = JSON.parse(order.signedPayload) as {
+            payload?: unknown;
+            headers?: Record<string, string>;
+        };
+        const signedPayload = parsedPayload?.payload ?? parsedPayload;
+        const headers = parsedPayload?.headers ?? undefined;
 
         console.log(`Calling Pacifica API.... `)
 
-        const pacificaResponse = await pacifica.placeMarketOrder(signedPayload);
+        const pacificaResponse = await pacifica.placeMarketOrder(signedPayload, { headers });
 
         if (!pacificaResponse.success) {
             console.error(`Pacifica  rejected order ${order.id}:`, pacificaResponse)
+            await prisma.order.update({
+                where: { id: order.id },
+                data: { status: 'failed' },
+            });
             return;
         }
 

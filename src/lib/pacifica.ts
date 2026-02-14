@@ -110,6 +110,13 @@ export const pacifica = {
         }
     },
 
+    getAccountState: async (walletAddress: string) => {
+        const response = await pacificaClient.get('/api/v1/account', {
+            params: { account: walletAddress }
+        });
+        return response.data;
+    },
+
     // PRIVATE ENDPOINTS (Signature required)
     approveBuilderCode: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
@@ -135,10 +142,14 @@ export const pacifica = {
         return response.data;
     },
 
-    placeMarketOrder: async (signedPayload: unknown) => {
+    placeMarketOrder: async (
+        signedPayload: unknown,
+        options?: { headers?: Record<string, string> }
+    ) => {
         const response = await pacificaClient.post(
             '/api/v1/orders/create_market',
-            signedPayload
+            signedPayload,
+            options
         );
         return response.data;
     },
@@ -162,6 +173,14 @@ export const pacifica = {
     setTakeProfitStopLoss: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
             '/api/v1/positions/tpsl',
+            signedPayload
+        );
+        return response.data;
+    },
+
+    registerAgentWallet: async (signedPayload: unknown) => {
+        const response = await pacificaClient.post(
+            '/api/v1/account/agent_wallets/create',
             signedPayload
         );
         return response.data;

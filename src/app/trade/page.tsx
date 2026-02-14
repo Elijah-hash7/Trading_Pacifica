@@ -6,7 +6,7 @@ import TradingForm from '@/components/TradingForm';
 import OrdersDropdown from '@/components/OrdersDropdown';
 import { X, Check } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useFarcaster } from '@/hooks/useFarcaster';
+import { usePacificaWallet } from '@/hooks/usePacificaWallet';
 
 type TradingPair = {
   id: string;
@@ -52,7 +52,7 @@ export default function TradePage() {
   const [selectedPair, setSelectedPair] = useState<TradingPair | null>(null);
   const [viewMode, setViewMode] = useState<'chart' | 'orderbook'>('chart');
   const [showPairSelector, setShowPairSelector] = useState(false);
-  const { walletAddress, solBalance, solBalanceLoading, solBalanceError, connectWallet } = useFarcaster();
+  const { linkedPacificaAddress } = usePacificaWallet();
   const [ordersOpen, setOrdersOpen] = useState(false);
 
   const fetchPairs = useCallback(async () => {
@@ -129,17 +129,13 @@ export default function TradePage() {
         {/* Trading Form */}
         <TradingForm
           selectedPair={selectedPair}
-          walletAddress={walletAddress}
-          solBalance={solBalance}
-          solBalanceLoading={solBalanceLoading}
-          solBalanceError={solBalanceError}
-          connectWallet={connectWallet}
+          linkedPacificaAddress={linkedPacificaAddress}
         />
       </div>
 
       {/* Fixed Orders Dropdown at Bottom */}
       <OrdersDropdown
-        walletAddress={walletAddress}
+        walletAddress={linkedPacificaAddress}
         isOpen={ordersOpen}
         onToggle={() => setOrdersOpen(!ordersOpen)}
       />

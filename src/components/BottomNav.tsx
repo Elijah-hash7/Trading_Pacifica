@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { TrendingUp, Trophy, Sparkles } from 'lucide-react';
+import { TrendingUp, Trophy, Sparkles, Settings } from 'lucide-react';
 
 export default function BottomNav() {
   const pathname = usePathname();
@@ -9,7 +9,8 @@ export default function BottomNav() {
   const navItems = [
     { href: '/Home', icon: Sparkles, label: 'Home' },
     { href: '/trade', icon: TrendingUp, label: 'Trade' },
-    { href: '/leaderboard', icon: Trophy, label: 'Ranks' }
+    { href: '/leaderboard', icon: Trophy, label: 'Ranks' },
+    { href: '/settings', icon: Settings, label: 'Settings' }
   ];
 
   return (

@@ -18,10 +18,15 @@ export async function GET(request: Request) {
         }
 
         const response = await pacifica.getPositions(walletAddress);
+        const positions = Array.isArray(response?.positions)
+            ? response.positions
+            : Array.isArray(response?.data)
+                ? response.data
+                : [];
 
         return NextResponse.json ({
             success: true,
-            positions: response.data || []
+            positions
         });
 
     } catch (error: unknown) {
