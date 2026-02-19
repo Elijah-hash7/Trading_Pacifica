@@ -5,6 +5,7 @@ import { Copy, X } from 'lucide-react';
 import { useToast } from '@/components/ToastProvider';
 import { usePacificaWallet } from '@/hooks/usePacificaWallet';
 import { sdk } from '@farcaster/miniapp-sdk';
+import { useSearchParams } from 'next/navigation';
 
 type AccountState = {
   balance: number;
@@ -44,6 +45,7 @@ function fmtUsd(value: number | undefined) {
 
 export default function SettingsPage() {
   const { pushToast } = useToast();
+  const searchParams = useSearchParams();
   const {
     linkedPacificaAddress,
     linkedProvider,
@@ -78,6 +80,7 @@ export default function SettingsPage() {
   const [agentReadyReason, setAgentReadyReason] = useState('');
   const [isAgentReady, setIsAgentReady] = useState(false);
   const [showAllMetrics, setShowAllMetrics] = useState(false);
+  const [hasAutoOpenedDeposit, setHasAutoOpenedDeposit] = useState(false);
 
   const displayAddr = useMemo(() => {
     if (!linkedPacificaAddress) return 'Not linked';
@@ -397,6 +400,12 @@ export default function SettingsPage() {
       await fetchWalletUsdcBalance();
     }
   }, [accountState?.balance, fetchWalletUsdcBalance, linkedPacificaAddress]);
+
+  useEffect(() => {
+    if (searchParams.get('tab') !== 'deposit' || hasAutoOpenedDeposit) return;
+    setHasAutoOpenedDeposit(true);
+    void onDeposit();
+  }, [hasAutoOpenedDeposit, onDeposit, searchParams]);
 
   const startDepositFlow = useCallback(async () => {
     if (!linkedPacificaAddress) {
