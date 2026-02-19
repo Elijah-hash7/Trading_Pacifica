@@ -1,21 +1,15 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
-    prisma : PrismaClient | undefined;
+  prisma: PrismaClient | undefined;
 };
 
-let prismaInstance: PrismaClient;
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: ["query"],
+  });
 
-try {
-    prismaInstance = globalForPrisma.prisma ?? new PrismaClient();
-} catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('Failed to initialize PrismaClient:', message);
-    prismaInstance = null as unknown as PrismaClient;
-}
-
-export const prisma = prismaInstance;
-
-if (process.env.NODE_ENV !== 'production') {
-    globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
 }

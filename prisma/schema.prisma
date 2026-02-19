@@ -4,20 +4,17 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL") 
+  url      = env("DATABASE_URL")
 }
 
-
 model User {
-  id            String    @id @default(cuid())
-  fid           Int       @default(0)
-  username      String    
-  walletAddress String    @unique
-  totalVolume   Float     @default(0)
-  totalFees     Float     @default(0)
-  createdAt     DateTime  @default(now())
-
-
+  id            String   @id @default(cuid())
+  fid           Int      @default(0)
+  username      String
+  walletAddress String   @unique
+  totalVolume   Float    @default(0)
+  totalFees     Float    @default(0)
+  createdAt     DateTime @default(now())
   orders        Order[]
   trades        Trade[]
 }
@@ -33,11 +30,9 @@ model PacificaAgent {
   updatedAt           DateTime @updatedAt
 }
 
-
 model Order {
   id              String    @id @default(cuid())
   userId          String
-  user            User      @relation(fields: [userId], references: [id])
   pairId          String
   pairSymbol      String
   type            String
@@ -45,34 +40,31 @@ model Order {
   size            Float
   leverage        Int
   limitPrice      Float?
-  status          String     @default("pending")
+  status          String    @default("pending")
   pacificaOrderId String?
   filledAt        DateTime?
-  createdAt       DateTime   @default(now())
-
+  createdAt       DateTime  @default(now())
   signedPayload   String?
-
-
+  user            User      @relation(fields: [userId], references: [id])
   trades          Trade?
 }
 
-
 model Trade {
-  id              String      @id @default(cuid())
-  orderId         String      @unique
-  order           Order       @relation(fields: [orderId], references: [id])
-  userId          String
-  user            User        @relation(fields: [userId], references: [id])
-  pairId          String
-  pairSymbol      String
-  side            String
-  size            Float
-  leverage        Int
-  entryPrice      Float
-  exitPrice       Float?
-  pnl             Float?
-  fee             Float
-  status          String      @default("open")
-  createdAt       DateTime    @default(now())
-  closedAt        DateTime?
+  id         String    @id @default(cuid())
+  orderId    String    @unique
+  userId     String
+  pairId     String
+  pairSymbol String
+  side       String
+  leverage   Int
+  entryPrice Float
+  exitPrice  Float?
+  pnl        Float?
+  fee        Float
+  status     String    @default("open")
+  createdAt  DateTime  @default(now())
+  closedAt   DateTime?
+  size       Float
+  order      Order     @relation(fields: [orderId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
 }

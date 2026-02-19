@@ -68,7 +68,7 @@ export async function POST(
             amount: trade.order.size.toString(),
             side: trade.side === 'long' ? 'ask' : 'bid',
             type: "market",
-            timeStamp: new Date().toISOString(),
+            timestamp: Date.now(),
         };
 
         let signed: Awaited<ReturnType<typeof signOrderWithAgent>>;

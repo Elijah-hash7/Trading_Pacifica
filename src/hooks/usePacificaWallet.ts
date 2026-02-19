@@ -1,26 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import bs58 from 'bs58';
 
 const LINKED_WALLET_KEY = 'pacificast_linked_pacifica_wallet';
 const LINKED_WALLET_PROVIDER_KEY = 'pacificast_linked_pacifica_wallet_provider';
+const LINKED_WALLET_DISCONNECTED_KEY = 'pacificast_linked_pacifica_wallet_disconnected';
 
+
+// Define the browser wallet provider
 type BrowserWalletProvider = {
   isPhantom?: boolean;
   isSolflare?: boolean;
   publicKey?: { toBase58?: () => string };
   connect?: (options?: { onlyIfTrusted?: boolean }) => Promise<unknown>;
+  disconnect?: () => Promise<void>;
+  request?: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
+  signTransaction?: (tx: unknown) => Promise<unknown>;
+  signAndSendTransaction?: (tx: unknown) => Promise<{ signature?: string } | string>;
   signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature?: Uint8Array } | Uint8Array>;
 };
 
 function isSolanaAddress(addr: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
-}
-
-function toBase64(bytes: Uint8Array) {
-  let binary = '';
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  return btoa(binary);
 }
 
 function getWalletProvider() {
@@ -54,6 +56,9 @@ export function usePacificaWallet() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    const wasDisconnected = window.localStorage.getItem(LINKED_WALLET_DISCONNECTED_KEY) === '1';
+    if (wasDisconnected) return;
 
     const { provider, name } = getWalletProvider();
     if (!provider) return;
@@ -90,7 +95,7 @@ export function usePacificaWallet() {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    }, []);
 
   const connectLinkedWallet = useCallback(async () => {
     const { provider, name } = getWalletProvider();
@@ -106,6 +111,7 @@ export function usePacificaWallet() {
 
     window.localStorage.setItem(LINKED_WALLET_KEY, address);
     window.localStorage.setItem(LINKED_WALLET_PROVIDER_KEY, name || 'Wallet');
+    window.localStorage.removeItem(LINKED_WALLET_DISCONNECTED_KEY);
     setLinkedPacificaAddress(address);
     setLinkedProvider(name || 'Wallet');
     return { address, providerName: name || 'Wallet' };
@@ -125,14 +131,35 @@ export function usePacificaWallet() {
           ? signed.signature
           : null;
     if (!signatureBytes) throw new Error('Wallet did not return a signature.');
-    return toBase64(signatureBytes);
+    return bs58.encode(signatureBytes);
   }, []);
 
-  const unlinkPacificaWallet = useCallback(() => {
+  const disconnectLinkedWallet = useCallback(async () => {
+    const { provider } = getWalletProvider();
+    try {
+      if (provider?.disconnect) await provider.disconnect();
+      else if (provider?.request) await provider.request({ method: 'disconnect' });
+    } catch {
+      // ignore wallet provider disconnect errors and still clear local state
+    }
+
+    window.localStorage.setItem(LINKED_WALLET_DISCONNECTED_KEY, '1');
     window.localStorage.removeItem(LINKED_WALLET_KEY);
     window.localStorage.removeItem(LINKED_WALLET_PROVIDER_KEY);
     setLinkedPacificaAddress('');
     setLinkedProvider('');
+  }, []);
+
+  const unlinkPacificaWallet = useCallback(() => {
+    window.localStorage.setItem(LINKED_WALLET_DISCONNECTED_KEY, '1');
+    window.localStorage.removeItem(LINKED_WALLET_KEY);
+    window.localStorage.removeItem(LINKED_WALLET_PROVIDER_KEY);
+    setLinkedPacificaAddress('');
+    setLinkedProvider('');
+  }, []);
+
+  const getLinkedWalletProvider = useCallback(() => {
+    return getWalletProvider().provider;
   }, []);
 
   return {
@@ -141,6 +168,8 @@ export function usePacificaWallet() {
     isPacificaLinked: Boolean(linkedPacificaAddress),
     connectLinkedWallet,
     signWithLinkedWallet,
+    disconnectLinkedWallet,
     unlinkPacificaWallet,
+    getLinkedWalletProvider,
   };
 }

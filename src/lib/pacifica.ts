@@ -1,8 +1,9 @@
 // src/lib/pacifica.ts
 import axios from 'axios';
 
-const PACIFICA_API_URL = 'https://api.pacifica.fi';
+const PACIFICA_API_URL = process.env.PACIFICA_API_URL || 'https://api.pacifica.fi/api/v1';
 const BUILDER_CODE = process.env.NEXT_PUBLIC_PACIFICA_BUILDER_CODE || '';
+const PACIFICA_WITHDRAW_PATH = process.env.PACIFICA_WITHDRAW_PATH || '/account/withdraw';
 
 const pacificaClient = axios.create({
     baseURL: PACIFICA_API_URL,
@@ -12,11 +13,26 @@ const pacificaClient = axios.create({
     },
 });
 
+pacificaClient.interceptors.response.use(
+    (response) => response,
+    (error: unknown) => {
+        if (axios.isAxiosError(error)) {
+            console.error('[pacifica-api error]', {
+                url: error.config?.url,
+                method: error.config?.method,
+                status: error.response?.status,
+                data: error.response?.data,
+            });
+        }
+        return Promise.reject(error);
+    }
+);
+
 export const pacifica = {
     // PUBLIC ENDPOINTS
     getTradingPairs: async () => {
         try {
-            const response = await pacificaClient.get('/api/v1/info');
+            const response = await pacificaClient.get('/info');
             return response.data;
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
@@ -35,7 +51,7 @@ export const pacifica = {
 
     getPrice: async (symbol: string) => {
         try {
-            const response = await pacificaClient.get('/api/v1/info/prices', {
+            const response = await pacificaClient.get('/info/prices', {
                 params: { symbol }
             });
             return response.data;
@@ -52,7 +68,7 @@ export const pacifica = {
 
     getPositions: async (walletAddress: string) => {
         try {
-            const response = await pacificaClient.get('/api/v1/positions', {
+            const response = await pacificaClient.get('/positions', {
                 params: { account: walletAddress }
             });
             return response.data;
@@ -64,7 +80,7 @@ export const pacifica = {
 
     getOpenOrders: async (walletAddress: string) => {
         try {
-            const response = await pacificaClient.get('/api/v1/orders', {
+            const response = await pacificaClient.get('/orders', {
                 params: { account: walletAddress }
             });
             return response.data;
@@ -76,7 +92,7 @@ export const pacifica = {
 
     getOrderHistory: async (walletAddress: string) => {
         try {
-            const response = await pacificaClient.get('/api/v1/orders/history', {
+            const response = await pacificaClient.get('/orders/history', {
                 params: { account: walletAddress }
             });
             return response.data;
@@ -88,7 +104,7 @@ export const pacifica = {
 
     getOrderById: async (orderId: string) => {
         try {
-            const response = await pacificaClient.get('/api/v1/orders/history_by_id', {
+            const response = await pacificaClient.get('/orders/history_by_id', {
                 params: { order_id: orderId }
             });
             return response.data;
@@ -100,7 +116,7 @@ export const pacifica = {
 
     getOrderbook: async (pairId: string) => {
         try {
-            const response = await pacificaClient.get('/api/v1/info/orderbook', {
+            const response = await pacificaClient.get('/info/orderbook', {
                 params: { pair: pairId }
             });
             return response.data;
@@ -111,7 +127,7 @@ export const pacifica = {
     },
 
     getAccountState: async (walletAddress: string) => {
-        const response = await pacificaClient.get('/api/v1/account', {
+        const response = await pacificaClient.get('/account-state', {
             params: { account: walletAddress }
         });
         return response.data;
@@ -120,15 +136,27 @@ export const pacifica = {
     // PRIVATE ENDPOINTS (Signature required)
     approveBuilderCode: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
-            '/api/v1/account/builder_codes/approve',
+            '/account/builder_codes/approve',
             signedPayload
         );
         return response.data;
     },
 
+    getAgentWallets: async (walletAddress: string) => {
+        const response = await pacificaClient.get('/agent', {
+            params: { account: walletAddress }
+        });
+        return response.data;
+    },
+
+    registerAgentWallet: async (signedPayload: unknown) => {
+        const response = await pacificaClient.post('/agent', signedPayload);
+        return response.data;
+    },
+
     checkBuilderApproval: async (walletAddress: string) => {
         const response = await pacificaClient.get(
-            '/api/v1/account/builder_codes/approvals',
+            '/account/builder_codes/approvals',
             { params: { account: walletAddress } }
         );
         return response.data;
@@ -136,7 +164,7 @@ export const pacifica = {
 
     revokeBuilderCode: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
-            '/api/v1/account/builder_codes/revoke', 
+            '/account/builder_codes/revoke',
             signedPayload
         );
         return response.data;
@@ -147,7 +175,7 @@ export const pacifica = {
         options?: { headers?: Record<string, string> }
     ) => {
         const response = await pacificaClient.post(
-            '/api/v1/orders/create_market',
+            '/orders/create_market',
             signedPayload,
             options
         );
@@ -156,7 +184,7 @@ export const pacifica = {
 
     placeLimitOrder: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
-            '/api/v1/orders/create',
+            '/orders/create',
             signedPayload
         );
         return response.data;
@@ -164,7 +192,7 @@ export const pacifica = {
 
     cancelOrder: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
-            '/api/v1/orders/cancel',
+            '/orders/cancel',
             signedPayload
         );
         return response.data;
@@ -172,16 +200,20 @@ export const pacifica = {
 
     setTakeProfitStopLoss: async (signedPayload: unknown) => {
         const response = await pacificaClient.post(
-            '/api/v1/positions/tpsl',
+            '/positions/tpsl',
             signedPayload
         );
         return response.data;
     },
 
-    registerAgentWallet: async (signedPayload: unknown) => {
+    withdraw: async (
+        signedPayload: unknown,
+        options?: { headers?: Record<string, string> }
+    ) => {
         const response = await pacificaClient.post(
-            '/api/v1/account/agent_wallets/create',
-            signedPayload
+            PACIFICA_WITHDRAW_PATH,
+            signedPayload,
+            options
         );
         return response.data;
     }

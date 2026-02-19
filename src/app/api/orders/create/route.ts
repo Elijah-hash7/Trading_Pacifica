@@ -32,13 +32,23 @@ type PacificaOrderResponse = {
     details?: string;
 };
 
+function redactSignedPayload(payload: unknown) {
+    if (!payload || typeof payload !== "object") return payload;
+    const cloned = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
+    if (typeof cloned.signature === "string") {
+        const value = cloned.signature;
+        cloned.signature = `${value.slice(0, 12)}...${value.slice(-8)}`;
+    }
+    return cloned;
+}
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
 
         const {
             account,
-            timeStamp,
+            timestamp,
             symbol,
             amount,
             side,
@@ -59,10 +69,10 @@ export async function POST(request: Request) {
         if (!Number.isFinite(tradeSize) || tradeSize <= 0) {
             return NextResponse.json({ error: "Invalid trade size" }, { status: 400 });
         }
-        const normalizedTimeStamp =
-            typeof timeStamp === "string" && timeStamp.length > 0
-                ? timeStamp
-                : new Date().toISOString();
+        const normalizedTimestamp =
+            typeof timestamp === "number" && Number.isFinite(timestamp)
+                ? timestamp
+                : Date.now();
 
         const requestedLeverage = Number.parseFloat(String(body.leverage ?? 1));
         const leverage = Number.isFinite(requestedLeverage) && requestedLeverage > 0
@@ -124,7 +134,7 @@ export async function POST(request: Request) {
                     type,
                     tick_level,
                     leverage,
-                    timeStamp: normalizedTimeStamp,
+                    timestamp: normalizedTimestamp,
                 });
                 signedLimitPayload = JSON.stringify({
                     payload: out.signedPayload,
@@ -189,7 +199,7 @@ export async function POST(request: Request) {
                     type,
                     tick_level,
                     leverage,
-                    timeStamp: normalizedTimeStamp,
+                    timestamp: normalizedTimestamp,
                 });
             } catch (e) {
                 await prisma.order.update({ where: { id: order.id }, data: { status: "failed" } });
@@ -204,6 +214,11 @@ export async function POST(request: Request) {
             }
 
             try {
+                console.info("[pacifica-order request]", {
+                    endpoint: "/orders/create_market",
+                    headers: { agent_wallet: signed.agentPublicKey },
+                    payload: redactSignedPayload(signed.signedPayload),
+                });
                 pacificaResponse = await withTimeout(
                     pacifica.placeMarketOrder(signed.signedPayload, {
                         headers: {
@@ -220,6 +235,10 @@ export async function POST(request: Request) {
             }
 
             if (!pacificaResponse.success) {
+                console.error("[pacifica-order rejected]", {
+                    endpoint: "/orders/create_market",
+                    response: pacificaResponse,
+                });
                 await prisma.order.update({ where: { id: order.id }, data: { status: "failed" } });
                 const backendMessage =
                     pacificaResponse.error || pacificaResponse.details || "Failed to place order with Pacifica";

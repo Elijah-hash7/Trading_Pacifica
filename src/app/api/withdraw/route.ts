@@ -19,12 +19,7 @@ function redactSignedPayload(payload: unknown) {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const walletAddress =
-      typeof body?.walletAddress === "string"
-        ? body.walletAddress
-        : typeof body?.account === "string"
-          ? body.account
-          : "";
+    const walletAddress = typeof body?.walletAddress === "string" ? body.walletAddress : "";
     const amountRaw = typeof body?.amount === "string" ? body.amount : String(body?.amount ?? "");
     const amount = Number.parseFloat(amountRaw);
 
