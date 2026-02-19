@@ -9,6 +9,7 @@ import Loading from '../loading';
 import SlideToConfirm from '@/components/slide-to-confirm';
 import { sdk } from '@farcaster/miniapp-sdk';
 import WalletBalanceCarousel, { type WalletCarouselItem } from '@/components/WalletBalanceCarousel';
+import { usePacificaWallet } from '@/hooks/usePacificaWallet';
 
 interface Pair {
   id: string;
@@ -50,8 +51,9 @@ export default function HomePage() {
     logout,
     solBalance,
     solBalanceLoading,
-    solBalanceError
+    solBalanceError,
   } = useFarcaster();
+  const { linkedPacificaAddress } = usePacificaWallet();
   const inFarcasterClient = isFarcasterClient;
   const { pushToast } = useToast();
   const [pairs, setPairs] = useState<Pair[]>([]);
@@ -82,6 +84,9 @@ export default function HomePage() {
   const [sendFeeError, setSendFeeError] = useState<string | null>(null);
   const [connectingWallet, setConnectingWallet] = useState(false);
   const [activeWalletIndex, setActiveWalletIndex] = useState(0);
+  const [pacificaUsdcBalance, setPacificaUsdcBalance] = useState<number | null>(null);
+  const [pacificaUsdcLoading, setPacificaUsdcLoading] = useState(false);
+  const [pacificaUsdcError, setPacificaUsdcError] = useState<string | null>(null);
   const router = useRouter();
 
 
@@ -217,6 +222,46 @@ export default function HomePage() {
     }, 4500);
     return () => window.clearTimeout(timeout);
   }, [connectWalletError]);
+
+  const fetchPacificaUsdcBalance = useCallback(async () => {
+    if (!linkedPacificaAddress) {
+      setPacificaUsdcBalance(null);
+      setPacificaUsdcError(null);
+      setPacificaUsdcLoading(false);
+      return;
+    }
+
+    setPacificaUsdcLoading(true);
+    setPacificaUsdcError(null);
+    try {
+      const response = await fetch(
+        `/api/pacifica/account-state?account=${encodeURIComponent(linkedPacificaAddress)}`,
+        { cache: 'no-store' }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Pacifica balance unavailable');
+      }
+
+      const availableToSpend = Number(body?.accountState?.available_to_spend ?? 0);
+      setPacificaUsdcBalance(Number.isFinite(availableToSpend) ? availableToSpend : 0);
+    } catch (error) {
+      setPacificaUsdcBalance(null);
+      setPacificaUsdcError(error instanceof Error ? error.message : 'Pacifica balance unavailable');
+    } finally {
+      setPacificaUsdcLoading(false);
+    }
+  }, [linkedPacificaAddress]);
+
+  useEffect(() => {
+    void fetchPacificaUsdcBalance();
+
+    if (!linkedPacificaAddress) return;
+    const interval = window.setInterval(() => {
+      void fetchPacificaUsdcBalance();
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [fetchPacificaUsdcBalance, linkedPacificaAddress]);
 
   useEffect(() => {
     if (!pairs.length) return;
@@ -437,6 +482,16 @@ export default function HomePage() {
     return '0.0000 SOL';
   };
 
+  const usdcLabel = () => {
+    if (!linkedPacificaAddress) return 'Link Pacifica wallet';
+    if (pacificaUsdcError) return 'USDC unavailable';
+    if (pacificaUsdcLoading) return 'Loading...';
+    if (pacificaUsdcBalance !== null && typeof pacificaUsdcBalance === 'number') {
+      return `${pacificaUsdcBalance.toFixed(2)} USDC`;
+    }
+    return '0.00 USDC';
+  };
+
   const walletItems: WalletCarouselItem[] = [
     {
       id: 'primary',
@@ -447,12 +502,9 @@ export default function HomePage() {
     },
     {
       id: 'pacifica',
-      title: 'Pacifica Account',
+      title: 'USDC Balance',
       subtitle: undefined,
-      badge: 'PACIFICA',
-      balanceLabel: '$0.00',
-      secondaryLabel: 'Unrealized PnL: $0.00',
-      secondaryTone: 'muted',
+      balanceLabel: usdcLabel(),
       showDepositAction: true,
     },
   ];
