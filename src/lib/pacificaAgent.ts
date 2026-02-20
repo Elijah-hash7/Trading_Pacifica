@@ -197,22 +197,8 @@ export async function saveGeneratedPacificaAgentKey(opts: {
 
 export async function getSavedPacificaAgentPublicKey(account: string) {
   assertSolanaAddress(account, "account");
-  const pacificaAgentDelegate = (
-    prisma as {
-      pacificaAgent?: {
-        findUnique: (args: {
-          where: { masterAccount: string };
-          select: { agentPublicKey: true };
-        }) => Promise<{ agentPublicKey: string } | null>;
-      };
-    }
-  ).pacificaAgent;
-  if (!pacificaAgentDelegate?.findUnique) {
-    console.warn("[getSavedPacificaAgentPublicKey] Prisma client missing pacificaAgent delegate. Run prisma generate.");
-    return null;
-  }
   try {
-    const agent = await pacificaAgentDelegate.findUnique({
+    const agent = await prisma.pacificaAgent.findUnique({
       where: { masterAccount: account },
       select: { agentPublicKey: true },
     });
